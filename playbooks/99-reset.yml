@@ -1,0 +1,27 @@
+- name: Reset k3s cluster
+  hosts: rpi_cluster
+  become: true
+
+  tasks:
+    - name: Run k3s uninstall if server
+      ansible.builtin.command: /usr/local/bin/k3s-uninstall.sh
+      when: "'k3s_servers' in group_names"
+      failed_when: false
+      changed_when: true
+
+    - name: Run k3s agent uninstall if agent
+      ansible.builtin.command: /usr/local/bin/k3s-agent-uninstall.sh
+      when: "'k3s_agents' in group_names"
+      failed_when: false
+      changed_when: true
+
+    - name: Remove k3s data
+      ansible.builtin.file:
+        path: "{{ k3s_data_dir }}"
+        state: absent
+
+    - name: Recreate k3s data directory
+      ansible.builtin.file:
+        path: "{{ k3s_data_dir }}"
+        state: directory
+        mode: "0755"

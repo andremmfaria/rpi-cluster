@@ -1,0 +1,167 @@
+- name: Validate nodes before bootstrap
+  hosts: rpi_cluster
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Ping hosts
+      ansible.builtin.ping:
+
+    - name: Check sudo access
+      ansible.builtin.command: whoami
+      register: whoami
+      changed_when: false
+
+    - name: Ensure root escalation works
+      ansible.builtin.assert:
+        that:
+          - whoami.stdout == "root"
+        fail_msg: "Sudo/become not working on {{ inventory_hostname }}"
+
+    # ---- HARDWARE VALIDATION ----
+
+    - name: Check NVMe block device exists (/dev/sda)
+      ansible.builtin.stat:
+        path: /dev/sda
+      register: nvme_block
+
+    - name: Fail if NVMe block device is missing
+      ansible.builtin.assert:
+        that:
+          - nvme_block.stat.exists
+        fail_msg: "/dev/sda (NVMe over USB) not detected on {{ inventory_hostname }}"
+
+    - name: Check NVMe partition exists
+      ansible.builtin.stat:
+        path: "{{ nvme_device }}"
+      register: nvme_partition
+
+    - name: Warn if NVMe partition missing
+      ansible.builtin.debug:
+        msg: "WARNING: {{ nvme_device }} not found on {{ inventory_hostname }} (will require partitioning)"
+      when: not nvme_partition.stat.exists
+
+    - name: Get NVMe size
+      ansible.builtin.command: lsblk -b -n -o SIZE /dev/sda
+      register: nvme_size
+      changed_when: false
+
+    - name: Ensure NVMe size is reasonable (>200GB expected)
+      ansible.builtin.assert:
+        that:
+          - (nvme_size.stdout | int) > 200000000000
+        fail_msg: "NVMe size looks incorrect on {{ inventory_hostname }} ({{ nvme_size.stdout }})"
+
+    # ---- FILESYSTEM / MOUNT CHECK ----
+
+    - name: Check if NVMe already has filesystem
+      ansible.builtin.command: blkid -o value -s TYPE {{ nvme_device }}
+      register: fs_type
+      failed_when: false
+      changed_when: false
+
+    - name: Show filesystem type
+      ansible.builtin.debug:
+        msg: "Filesystem on {{ nvme_device }}: {{ fs_type.stdout | default('NONE') }}"
+
+    - name: Check mountpoint exists
+      ansible.builtin.stat:
+        path: "{{ nvme_mount }}"
+      register: mountpoint
+
+    - name: Warn if mountpoint missing
+      ansible.builtin.debug:
+        msg: "WARNING: mountpoint {{ nvme_mount }} does not exist yet"
+      when: not mountpoint.stat.exists
+
+    # ---- OS / KERNEL CHECKS ----
+
+    - name: Check architecture
+      ansible.builtin.command: uname -m
+      register: arch
+      changed_when: false
+
+    - name: Ensure ARM64
+      ansible.builtin.assert:
+        that:
+          - arch.stdout in ["aarch64", "arm64"]
+        fail_msg: "Node is not ARM64 (got {{ arch.stdout }})"
+
+    - name: Check kernel version
+      ansible.builtin.command: uname -r
+      register: kernel
+      changed_when: false
+
+    - name: Print kernel version
+      ansible.builtin.debug:
+        msg: "Kernel: {{ kernel.stdout }}"
+
+    # ---- K3S PREREQS ----
+
+    - name: Check cgroup memory enabled
+      ansible.builtin.command: grep -q cgroup_memory=1 /boot/firmware/cmdline.txt
+      register: cgroup_check
+      failed_when: false
+      changed_when: false
+
+    - name: Warn if cgroup memory not enabled
+      ansible.builtin.debug:
+        msg: "WARNING: cgroup memory not enabled (will be fixed in bootstrap)"
+      when: cgroup_check.rc != 0
+
+    - name: Check br_netfilter module
+      ansible.builtin.shell: lsmod | grep br_netfilter
+      register: br_netfilter
+      failed_when: false
+      changed_when: false
+
+    - name: Warn if br_netfilter not loaded
+      ansible.builtin.debug:
+        msg: "WARNING: br_netfilter not loaded (will be configured)"
+      when: br_netfilter.rc != 0
+
+    - name: Check ip_forward
+      ansible.builtin.command: sysctl -n net.ipv4.ip_forward
+      register: ip_forward
+      changed_when: false
+
+    - name: Warn if ip_forward disabled
+      ansible.builtin.debug:
+        msg: "WARNING: ip_forward is disabled"
+      when: ip_forward.stdout != "1"
+
+    # ---- NETWORK CHECKS ----
+
+    - name: Check default route
+      ansible.builtin.command: ip route show default
+      register: default_route
+      changed_when: false
+
+    - name: Ensure default route exists
+      ansible.builtin.assert:
+        that:
+          - default_route.stdout | length > 0
+        fail_msg: "No default route on {{ inventory_hostname }}"
+
+    - name: Check DNS resolution
+      ansible.builtin.command: getent hosts google.com
+      register: dns_check
+      changed_when: false
+      failed_when: false
+
+    - name: Warn if DNS resolution fails
+      ansible.builtin.debug:
+        msg: "WARNING: DNS resolution failed"
+      when: dns_check.rc != 0
+
+    # ---- SUMMARY ----
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "Node {{ inventory_hostname }} validation complete"
+          - "NVMe OK: {{ nvme_block.stat.exists }}"
+          - "Partition: {{ nvme_partition.stat.exists }}"
+          - "FS: {{ fs_type.stdout | default('NONE') }}"
+          - "Arch: {{ arch.stdout }}"
+          - "Kernel: {{ kernel.stdout }}"

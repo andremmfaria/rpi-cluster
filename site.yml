@@ -1,0 +1,36 @@
+- name: Prepare all Raspberry Pi nodes
+  hosts: rpi_cluster
+  become: true
+  roles:
+    - common
+    - storage
+
+- name: Install first k3s server
+  hosts: rpi-0
+  become: true
+  roles:
+    - role: k3s_server
+      vars:
+        k3s_cluster_init: true
+
+- name: Install remaining k3s servers
+  hosts: k3s_servers:!rpi-0
+  become: true
+  serial: 1
+  roles:
+    - role: k3s_server
+      vars:
+        k3s_cluster_init: false
+
+- name: Install k3s agents
+  hosts: k3s_agents
+  become: true
+  serial: 2
+  roles:
+    - k3s_agent
+
+- name: Post-configure k3s cluster
+  hosts: rpi-0
+  become: true
+  roles:
+    - k3s_post
