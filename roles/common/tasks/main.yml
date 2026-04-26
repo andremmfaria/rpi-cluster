@@ -175,6 +175,9 @@
     content: "{{ updated_cmdline }}\n"
   notify: Reboot node
 
+- name: Flush handlers to reboot now if cmdline changed
+  ansible.builtin.meta: flush_handlers
+
 - name: Disable WiFi via boot config (dtoverlay)
   ansible.builtin.lineinfile:
     path: /boot/firmware/config.txt
