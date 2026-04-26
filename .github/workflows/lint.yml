@@ -8,6 +8,7 @@ on:
       - master
     paths:
       - "cluster-setup/**"
+      - "cluster-platform/**"
       - ".github/workflows/lint.yml"
   pull_request:
     branches:
@@ -15,6 +16,7 @@ on:
       - master
     paths:
       - "cluster-setup/**"
+      - "cluster-platform/**"
       - ".github/workflows/lint.yml"
 
 jobs:
@@ -95,3 +97,16 @@ jobs:
           -i inventories/homelab/hosts.yml
           playbooks/99-reset.yml
         working-directory: cluster-setup
+
+  manifests-lint:
+    name: Manifests Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Install yamllint
+        run: pip install yamllint==1.38.0
+
+      - name: Run yamllint
+        run: yamllint .
+        working-directory: cluster-platform

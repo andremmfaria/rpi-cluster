@@ -1,4 +1,4 @@
-# rpi-cluster
+# rpi-cluster-setup
 
 Ansible automation for a bare-metal Raspberry Pi Kubernetes cluster running [k3s](https://k3s.io/).
 
