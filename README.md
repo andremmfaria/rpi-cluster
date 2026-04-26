@@ -28,6 +28,7 @@ Ansible automation for a bare-metal Raspberry Pi Kubernetes cluster running [k3s
 - [Bootstrap Workflow](#bootstrap-workflow)
 - [Security Considerations](#security-considerations)
 - [Variable Precedence](#variable-precedence)
+- [CI](#ci)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -157,7 +158,8 @@ rpi-cluster/
 │       ├── defaults/main.yml
 │       └── tasks/main.yml
 ├── scripts/
-│   └── script.sh                      # One-shot bootstrap helper
+│   ├── run.sh                         # Ansible wrapper (deps/ping/deploy/reset/check/lint)
+│   └── act.sh                         # Local CI runner via act (lint/all)
 └── site.yml                           # Master playbook
 ```
 
@@ -207,7 +209,7 @@ All mandatory customisation lives here. Edit this file before running any playbo
 
 | Variable      | Default                               | Description                                 |
 | ------------- | ------------------------------------- | ------------------------------------------- |
-| `k3s_version` | `v1.32.3+k3s1`                        | k3s release to install (pin this)           |
+| `k3s_version` | `v1.35.3+k3s1`                        | k3s release to install (pin this)           |
 | `k3s_token`   | `CHANGE_THIS_TO_A_LONG_RANDOM_SECRET` | Shared cluster secret — **must be changed** |
 | `k3s_api_vip` | `192.168.50.30`                       | Added as TLS SAN; set to `""` to skip       |
 
@@ -276,7 +278,6 @@ Sets up every node identically before any Kubernetes component is installed.
 | Deploy SSH key             | Uses `ansible.posix.authorized_key` with `exclusive: true` — **this removes all other authorized keys** from the admin user                                         |
 | Harden sshd                | Disables `PasswordAuthentication`, `KbdInteractiveAuthentication`, and `ChallengeResponseAuthentication` when `disable_ssh_password_auth` is true                   |
 | Block service user SSH     | Adds a `DenyUsers` block for the `k3s` system user                                                                                                                  |
-| Enable iscsid              | Required for iSCSI-backed persistent volumes (e.g., Longhorn)                                                                                                       |
 | Kernel modules             | Loads `br_netfilter` and `overlay`; persists via `/etc/modules-load.d/k3s.conf`                                                                                     |
 | sysctl                     | Writes `/etc/sysctl.d/99-k3s.conf` and applies via `sysctl --system`                                                                                                |
 | Boot cmdline               | Appends `cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1` to `/boot/firmware/cmdline.txt` — deduplicated with `unique` filter; triggers reboot if changed |
@@ -284,16 +285,16 @@ Sets up every node identically before any Kubernetes component is installed.
 
 #### Handlers
 
-| Handler       | Trigger                            | Action                                      |
-| ------------- | ---------------------------------- | ------------------------------------------- |
-| `reboot node` | cmdline.txt or WiFi config changed | `ansible.builtin.reboot` with 300 s timeout |
-| `restart ssh` | any sshd_config change             | `systemctl restart ssh`                     |
+| Handler        | Trigger                            | Action                                      |
+| -------------- | ---------------------------------- | ------------------------------------------- |
+| `Reboot node`  | cmdline.txt or WiFi config changed | `ansible.builtin.reboot` with 300 s timeout |
+| `Restart ssh`  | any sshd_config change             | `systemctl restart ssh`                     |
 
 > **Note**: The reboot handler flushes at end of the `common` role play, not inline. If cmdline.txt is changed, all subsequent tasks in the same play run on the rebooted node.
 
 #### Default packages (`required_packages`)
 
-`ca-certificates`, `curl`, `e2fsprogs`, `htop`, `iotop`, `jq`, `nfs-common`, `nvme-cli`, `open-iscsi`, `parted`, `python3`, `python3-apt`, `smartmontools`, `sudo`, `sysstat`, `xfsprogs`
+`ca-certificates`, `curl`, `e2fsprogs`, `htop`, `iotop`, `jq`, `nfs-common`, `nvme-cli`, `openssh-server`, `parted`, `python3`, `python3-apt`, `smartmontools`, `sudo`, `sysstat`, `xfsprogs`
 
 ---
 
@@ -316,10 +317,9 @@ stat /dev/sda1 (nvme_device)
                      │                                             │
                      ├─ missing → FAIL                             │
                      │                                             │
-                     └─ exists → parted: GPT label                 │
-                                 parted: partition 1 (1MiB–100%)   │
+                     └─ exists → parted: partition 1 (GPT, 1MiB–100%)
                                  wait_for: /dev/sda1 appears        │
-                                                                   ↓
+                                                                    ↓
                               blkid -s TYPE /dev/sda1 ─────────────┘
                                   │
                                   ├─ rc=0 (filesystem found) → skip format
@@ -375,7 +375,7 @@ The first server **must** complete and have port 6443 open before joining server
 | `--advertise-address`         | IP advertised to the API server                   |
 | `--data-dir`                  | Points to NVMe mount (set via `k3s_data_dir`)     |
 
-If `k3s_api_vip` is non-empty, `--tls-san=<vip>` is appended so the API certificate is valid for external load-balancer traffic.
+If `k3s_api_vip` is non-empty, `--tls-san=<vip>` is appended so the API certificate is valid for external load-balancer traffic. This is computed in a single `set_fact` task at the start of the role using a Jinja2 ternary.
 
 #### Security
 
@@ -389,7 +389,7 @@ Waits up to 180 seconds for port 6443 to open on `node_ip` before declaring succ
 
 ### Role: `k3s_agent`
 
-**Applied to**: `k3s_agents` group (serial: 2)
+**Applied to**: `k3s_agents` group (all agents in parallel)
 
 **Defaults**: `roles/k3s_agent/defaults/main.yml`
 
@@ -432,7 +432,6 @@ Runs after all nodes are installed to verify cluster health and apply node label
 | Label                                   | Value  |
 | --------------------------------------- | ------ |
 | `node-role.kubernetes.io/control-plane` | `true` |
-| `storage`                               | `nvme` |
 | `node.kubernetes.io/storage`            | `nvme` |
 
 **Agent nodes** (`k3s_agents`):
@@ -440,7 +439,6 @@ Runs after all nodes are installed to verify cluster health and apply node label
 | Label                            | Value  |
 | -------------------------------- | ------ |
 | `node-role.kubernetes.io/worker` | `true` |
-| `storage`                        | `nvme` |
 | `node.kubernetes.io/storage`     | `nvme` |
 
 Label idempotency: `--overwrite` is passed; `changed_when` inspects kubectl output — the task reports `changed` only when kubectl says `labeled` (value actually set), and `ok` when it says `not labeled` (value unchanged).
@@ -489,12 +487,12 @@ Runs all five roles in dependency order:
 ```
 Play 1: rpi_cluster      → common, storage          (all nodes, parallel)
 Play 2: rpi-0            → k3s_server (init=true)   (bootstrap leader)
-Play 3: k3s_servers !rpi-0 → k3s_server (init=false) (serial: 1)
-Play 4: k3s_agents       → k3s_agent               (serial: 2)
+Play 3: k3s_servers !rpi-0 → k3s_server (init=false) (serial: 1 — etcd membership constraint)
+Play 4: k3s_agents       → k3s_agent               (all agents, parallel)
 Play 5: rpi-0            → k3s_post                 (label + verify)
 ```
 
-`serial: 1` on the joining-servers play ensures each server fully joins etcd before the next one starts. `serial: 2` on agents allows two agents to install simultaneously.
+`serial: 1` on the joining-servers play is a hard etcd requirement — new members must join one at a time so etcd can commit each membership change and maintain quorum. Agents have no such constraint and install in parallel.
 
 #### Usage
 
@@ -508,7 +506,7 @@ ansible-playbook -i inventories/homelab/hosts.yml site.yml
 
 **Target**: `rpi_cluster` | `become: true`
 
-> **Destructive.** This playbook is intentionally separate from `scripts/script.sh` and must be run explicitly.
+> **Destructive.** This playbook is intentionally separate from `scripts/run.sh` and must be run explicitly.
 
 Runs the k3s uninstall scripts and wipes the data directory. Does **not** unmount or reformat the NVMe — the filesystem and mount remain intact for re-bootstrapping.
 
@@ -561,7 +559,9 @@ ansible-playbook -i inventories/homelab/hosts.yml site.yml
 Or use the helper script (does steps 2 + 3 together):
 
 ```bash
-bash scripts/script.sh
+./scripts/run.sh deps
+./scripts/run.sh ping
+./scripts/run.sh deploy
 ```
 
 Approximate runtime: 10–20 minutes depending on network speed and node responsiveness.
@@ -636,7 +636,29 @@ Variables are defined in multiple places. Ansible's precedence (highest wins):
 1. `inventories/homelab/group_vars/all.yml` — **primary source of truth**; overrides role defaults.
 2. `roles/<role>/defaults/main.yml` — fallback defaults, used only if not set in group_vars.
 
-Role defaults intentionally mirror group_var keys (e.g., `k3s_version`, `k3s_token`, `k3s_data_dir`) so roles are independently testable. When running via `site.yml` with the homelab inventory, group_vars always win.
+Role defaults intentionally mirror group_var keys (e.g., `k3s_version`, `k3s_token`, `k3s_data_dir`) so roles are independently testable against a real inventory. When running via `site.yml` with the homelab inventory, group_vars always win.
+
+---
+
+## CI
+
+GitHub Actions runs on every push and pull request to `main`/`master`:
+
+| Job            | What it does                                          |
+| -------------- | ----------------------------------------------------- |
+| YAML Lint      | `yamllint .` against `.yamllint.yml`                  |
+| Ansible Lint   | `ansible-lint` with profile `basic`                   |
+| Syntax Check   | `ansible-playbook --syntax-check` on all three plays  |
+
+No molecule/container tests — role logic is validated on physical hardware. Use `./scripts/run.sh check` for a live dry-run against the real inventory before applying.
+
+To run the same checks locally:
+
+```bash
+./scripts/run.sh lint          # yamllint + ansible-lint
+./scripts/act.sh lint          # full CI workflow via act (requires Docker)
+./scripts/act.sh all           # all CI workflows via act
+```
 
 ---
 
