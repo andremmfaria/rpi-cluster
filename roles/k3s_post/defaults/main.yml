@@ -1,3 +1,4 @@
+---
 expected_node_count: "{{ groups['rpi_cluster'] | length }}"
 
 server_node_labels:

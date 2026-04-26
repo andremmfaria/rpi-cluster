@@ -1,3 +1,4 @@
+---
 - name: Reset k3s cluster
   hosts: rpi_cluster
   become: true

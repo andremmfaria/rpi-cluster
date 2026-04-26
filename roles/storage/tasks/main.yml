@@ -1,3 +1,4 @@
+---
 - name: Check NVMe partition exists
   ansible.builtin.stat:
     path: "{{ nvme_device }}"

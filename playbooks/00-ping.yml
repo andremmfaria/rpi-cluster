@@ -1,3 +1,4 @@
+---
 - name: Validate nodes before bootstrap
   hosts: rpi_cluster
   gather_facts: false

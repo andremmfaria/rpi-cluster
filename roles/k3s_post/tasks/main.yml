@@ -1,3 +1,4 @@
+---
 - name: Wait for all nodes to join
   ansible.builtin.shell: kubectl get nodes --no-headers | wc -l
   register: node_count

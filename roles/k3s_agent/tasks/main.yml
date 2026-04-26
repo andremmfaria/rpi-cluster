@@ -1,3 +1,4 @@
+---
 - name: Check if k3s agent is already installed
   ansible.builtin.stat:
     path: /etc/systemd/system/k3s-agent.service

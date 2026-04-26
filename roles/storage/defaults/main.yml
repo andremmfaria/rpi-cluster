@@ -1,3 +1,4 @@
+---
 nvme_disk: /dev/sda
 nvme_device: /dev/sda1
 nvme_mount: /mnt/nvme
