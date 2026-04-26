@@ -36,7 +36,6 @@ ${BOLD}Commands:${RESET}
   install       Download and install act ${ACT_VERSION} to /usr/local/bin
   list          List all available workflows and jobs
   lint          Run the lint workflow  (yamllint + ansible-lint + syntax-check)
-  molecule      Run the molecule workflow  (Docker-in-Docker, requires --privileged)
   all           Run all workflows
   run <name>    Run a specific workflow by filename  (without .yml extension)
 
@@ -44,7 +43,7 @@ ${BOLD}Options:${RESET}
   --secret-file FILE   Load secrets from FILE (act format: KEY=VALUE per line)
   --env-file FILE      Load env vars from FILE
   --dry-run            Print commands act would run without executing
-  --privileged         Run containers with --privileged (required for molecule)
+  --privileged         Run containers with --privileged
   --reuse              Reuse existing containers instead of recreating them
   -v, --verbose        Enable act verbose output
   -h, --help           Show this message
@@ -53,7 +52,6 @@ ${BOLD}Examples:${RESET}
   $(basename "$0") install
   $(basename "$0") list
   $(basename "$0") lint
-  $(basename "$0") molecule --privileged
   $(basename "$0") all
   $(basename "$0") run lint
   $(basename "$0") lint --dry-run
@@ -172,12 +170,6 @@ cmd_lint() {
   run_act push ".github/workflows/lint.yml"
 }
 
-cmd_molecule() {
-  header "Running molecule workflow"
-  warn "Molecule requires Docker-in-Docker. Pass --privileged if containers fail to start."
-  run_act push ".github/workflows/molecule.yml"
-}
-
 cmd_all() {
   header "Running all workflows"
   run_act push
@@ -213,7 +205,6 @@ main() {
     install)  cmd_install  ;;
     list)     cmd_list     ;;
     lint)     cmd_lint     ;;
-    molecule) cmd_molecule ;;
     all)      cmd_all      ;;
     run)
       if [[ ${#ACT_ARGS[@]} -gt 0 ]]; then

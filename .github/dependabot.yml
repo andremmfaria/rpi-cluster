@@ -22,14 +22,3 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "deps"
-
-  - package-ecosystem: "docker"
-    directory: "/roles/common/molecule/default"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    labels:
-      - "dependencies"
-      - "molecule"
-    commit-message:
-      prefix: "deps(molecule)"
