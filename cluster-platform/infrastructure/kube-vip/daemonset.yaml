@@ -23,7 +23,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: kube-vip
-          image: ghcr.io/kube-vip/kube-vip:v0.8.0
+          image: ghcr.io/kube-vip/kube-vip:v1.1.2
           args:
             - manager
           env:
@@ -31,10 +31,12 @@ spec:
               value: "true"
             - name: vip_interface
               value: "eth0"
-            - name: vip_address
+            - name: address
               value: "192.168.50.30"
-            - name: vip_controlplane
+            - name: cp_enable
               value: "true"
+            - name: cp_namespace
+              value: "kube-system"
             - name: vip_leaderelection
               value: "true"
           securityContext:

@@ -7,6 +7,7 @@ metadata:
 spec:
   repo: https://kubernetes.github.io/ingress-nginx
   chart: ingress-nginx
+  version: "4.15.1"
   targetNamespace: ingress-nginx
   createNamespace: true
   valuesContent: |

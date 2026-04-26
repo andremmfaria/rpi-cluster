@@ -642,7 +642,7 @@ Role defaults intentionally mirror group_var keys (e.g., `k3s_version`, `k3s_tok
 
 ## CI
 
-GitHub Actions runs on every push and pull request to `main`/`master`:
+GitHub Actions runs on every push and pull request to `main`/`master` touching `cluster-setup/**`:
 
 | Job            | What it does                                          |
 | -------------- | ----------------------------------------------------- |
@@ -650,14 +650,15 @@ GitHub Actions runs on every push and pull request to `main`/`master`:
 | Ansible Lint   | `ansible-lint` with profile `basic`                   |
 | Syntax Check   | `ansible-playbook --syntax-check` on all three plays  |
 
+Workflow file: `.github/workflows/cluster-setup-lint.yml`
+
 No molecule/container tests — role logic is validated on physical hardware. Use `./scripts/run.sh check` for a live dry-run against the real inventory before applying.
 
 To run the same checks locally:
 
 ```bash
 ./scripts/run.sh lint          # yamllint + ansible-lint
-./scripts/act.sh lint          # full CI workflow via act (requires Docker)
-./scripts/act.sh all           # all CI workflows via act
+./scripts/act.sh lint          # cluster-setup CI workflow via act (requires Docker)
 ```
 
 ---

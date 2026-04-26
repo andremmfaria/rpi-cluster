@@ -1,9 +1,13 @@
 # File created using '.gitignore Generator' for Visual Studio Code: https://bit.ly/vscode-gig
-# Created by https://www.toptal.com/developers/gitignore/api/visualstudiocode,linux,ansible
-# Edit at https://www.toptal.com/developers/gitignore?templates=visualstudiocode,linux,ansible
+# Created by https://www.toptal.com/developers/gitignore/api/visualstudiocode,linux,ansible,helm
+# Edit at https://www.toptal.com/developers/gitignore?templates=visualstudiocode,linux,ansible,helm
 
 ### Ansible ###
 *.retry
+
+### Helm ###
+# Chart dependencies
+**/charts/*.tgz
 
 ### Linux ###
 *~
@@ -39,8 +43,10 @@
 .history
 .ionide
 
-# End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,linux,ansible
+# End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,linux,ansible,helm
 
 # Custom rules (everything added below won't be overriden by 'Generate .gitignore File' if you use 'Update' option)
-
 *.img
+error.txt
+*.kubeconfig
+

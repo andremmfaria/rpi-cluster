@@ -7,7 +7,7 @@ Monorepo for a 6-node Raspberry Pi Kubernetes cluster — from bare-metal provis
 ```
 rpi-cluster/
 ├── cluster-setup/        # Ansible automation — OS hardening, storage, k3s bootstrap
-└── cluster-platform/     # Platform configuration — cluster-level services and apps (coming soon)
+└── cluster-platform/     # GitOps manifests — platform infrastructure (kube-vip, MetalLB, ingress)
 ```
 
 ## Modules
@@ -23,12 +23,19 @@ Ansible playbooks and roles that take freshly imaged Raspberry Pi nodes to a ful
 
 See [`cluster-setup/README.md`](./cluster-setup/README.md) for full documentation.
 
-### `cluster-platform/` _(coming soon)_
+### [`cluster-platform/`](./cluster-platform/README.md)
 
-Cluster-level platform services deployed on top of the k3s cluster — ingress, storage classes, monitoring, and application workloads.
+GitOps-managed Kubernetes platform layer — applied with `kubectl` after the cluster is bootstrapped.
+
+- kube-vip — HA API endpoint (VIP `192.168.50.30`)
+- MetalLB — LoadBalancer IPs on LAN (`192.168.50.40–60`)
+- ingress-nginx — HTTP/S routing (`192.168.50.40`)
+
+See [`cluster-platform/README.md`](./cluster-platform/README.md) for full documentation.
 
 ## CI
 
-| Workflow | Triggers on | Jobs |
-| -------- | ----------- | ---- |
-| Lint     | `cluster-setup/**` | YAML Lint, Ansible Lint, Syntax Check |
+| Workflow | File | Triggers on | Jobs |
+| -------- | ---- | ----------- | ---- |
+| Cluster Setup — Lint | `cluster-setup-lint.yml` | `cluster-setup/**` | YAML Lint, Ansible Lint, Syntax Check |
+| Cluster Platform — Lint | `cluster-platform-lint.yml` | `cluster-platform/**` | Manifests Lint |

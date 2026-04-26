@@ -1,0 +1,32 @@
+---
+name: "Cluster Platform — Lint"
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "cluster-platform/**"
+      - ".github/workflows/cluster-platform-lint.yml"
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - "cluster-platform/**"
+      - ".github/workflows/cluster-platform-lint.yml"
+
+jobs:
+  manifests-lint:
+    name: Manifests Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Install yamllint
+        run: pip install yamllint==1.38.0
+
+      - name: Run yamllint
+        run: yamllint .
+        working-directory: cluster-platform
