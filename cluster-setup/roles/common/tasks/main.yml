@@ -19,6 +19,12 @@
     name: "{{ required_packages }}"
     state: present
 
+- name: Enable and start iscsid
+  ansible.builtin.systemd:
+    name: iscsid
+    enabled: true
+    state: started
+
 # ---- CLUSTER SERVICE USER ----
 
 - name: Create cluster service group

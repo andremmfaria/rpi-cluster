@@ -278,6 +278,7 @@ Sets up every node identically before any Kubernetes component is installed.
 | Deploy SSH key             | Uses `ansible.posix.authorized_key` with `exclusive: true` — **this removes all other authorized keys** from the admin user                                         |
 | Harden sshd                | Disables `PasswordAuthentication`, `KbdInteractiveAuthentication`, and `ChallengeResponseAuthentication` when `disable_ssh_password_auth` is true                   |
 | Block service user SSH     | Adds a `DenyUsers` block for the `k3s` system user                                                                                                                  |
+| Enable iscsid              | Enables and starts `iscsid` — required by Longhorn for volume mounting                                                                                              |
 | Kernel modules             | Loads `br_netfilter` and `overlay`; persists via `/etc/modules-load.d/k3s.conf`                                                                                     |
 | sysctl                     | Writes `/etc/sysctl.d/99-k3s.conf` and applies via `sysctl --system`                                                                                                |
 | Boot cmdline               | Appends `cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1` to `/boot/firmware/cmdline.txt` — deduplicated with `unique` filter; triggers reboot if changed |
@@ -294,7 +295,7 @@ Sets up every node identically before any Kubernetes component is installed.
 
 #### Default packages (`required_packages`)
 
-`ca-certificates`, `curl`, `e2fsprogs`, `htop`, `iotop`, `jq`, `nfs-common`, `nvme-cli`, `openssh-server`, `parted`, `python3`, `python3-apt`, `smartmontools`, `sudo`, `sysstat`, `xfsprogs`
+`ca-certificates`, `curl`, `e2fsprogs`, `htop`, `iotop`, `jq`, `nfs-common`, `nvme-cli`, `open-iscsi`, `openssh-server`, `parted`, `python3`, `python3-apt`, `smartmontools`, `sudo`, `sysstat`, `xfsprogs`
 
 ---
 
