@@ -17,15 +17,6 @@
     - not nvme_partition_stat.stat.exists
     - not nvme_disk_stat.stat.exists
 
-- name: Create GPT partition table on NVMe disk
-  community.general.parted:
-    device: "{{ nvme_disk }}"
-    label: gpt
-    state: present
-  when:
-    - not nvme_partition_stat.stat.exists
-    - nvme_disk_stat.stat.exists
-
 - name: Create primary partition using full NVMe disk
   community.general.parted:
     device: "{{ nvme_disk }}"
@@ -52,11 +43,12 @@
   failed_when: false
   changed_when: false
 
-- name: Format NVMe if unformatted
+- name: Format NVMe if unformatted or wrong filesystem type
   ansible.builtin.filesystem:
     fstype: "{{ nvme_fstype }}"
     dev: "{{ nvme_device }}"
-  when: fs_type.rc != 0
+    force: "{{ fs_type.stdout | trim | length > 0 and fs_type.stdout | trim != nvme_fstype }}"
+  when: fs_type.rc != 0 or fs_type.stdout | trim != nvme_fstype
 
 - name: Create NVMe mount point
   ansible.builtin.file:
