@@ -1,0 +1,14 @@
+---
+profile: basic
+
+warn_list:
+  - yaml[line-length]
+  - name[casing]
+
+skip_list:
+  - command-instead-of-module
+
+exclude_paths:
+  - .git/
+  - .github/
+  - scripts/
