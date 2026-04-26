@@ -143,12 +143,22 @@ apply_component() {
       kubectl apply -f infrastructure/longhorn/namespace.yaml
       info "Applying Longhorn Helm release..."
       kubectl apply -f infrastructure/longhorn/helm-release.yaml
-      info "Waiting for Longhorn CRDs to be established (this takes ~2 min)..."
+      info "Waiting for Longhorn CRDs to appear (this takes ~2 min)..."
+      local deadline=$(( $(date +%s) + 300 ))
+      until kubectl get crd volumes.longhorn.io nodes.longhorn.io settings.longhorn.io \
+              &>/dev/null 2>&1; do
+        if [[ $(date +%s) -ge $deadline ]]; then
+          error "Timed out waiting for Longhorn CRDs after 5 minutes"
+          exit 1
+        fi
+        sleep 10
+        info "  Still waiting..."
+      done
       kubectl wait --for=condition=Established \
         crd/volumes.longhorn.io \
         crd/nodes.longhorn.io \
         crd/settings.longhorn.io \
-        --timeout=180s
+        --timeout=60s
       info "Applying Longhorn UI ingress..."
       kubectl apply -f infrastructure/longhorn/ingress.yaml
       success "Longhorn applied."
