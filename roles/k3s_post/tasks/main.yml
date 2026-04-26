@@ -1,0 +1,30 @@
+- name: Wait for all nodes to join
+  ansible.builtin.shell: kubectl get nodes --no-headers | wc -l
+  register: node_count
+  until: node_count.stdout | int == expected_node_count | int
+  retries: 40
+  delay: 10
+  changed_when: false
+
+- name: Label server nodes
+  ansible.builtin.command: >
+    kubectl label node {{ item.0 }} {{ item.1 }} --overwrite
+  loop: "{{ groups['k3s_servers'] | product(server_node_labels) | list }}"
+  register: label_server_result
+  changed_when: '"not labeled" not in label_server_result.stdout'
+
+- name: Label agent nodes
+  ansible.builtin.command: >
+    kubectl label node {{ item.0 }} {{ item.1 }} --overwrite
+  loop: "{{ groups['k3s_agents'] | product(agent_node_labels) | list }}"
+  register: label_agent_result
+  changed_when: '"not labeled" not in label_agent_result.stdout'
+
+- name: Get node status
+  ansible.builtin.command: kubectl get nodes -o wide
+  register: nodes
+  changed_when: false
+
+- name: Print node status
+  ansible.builtin.debug:
+    var: nodes.stdout_lines
