@@ -1,13 +1,11 @@
 ---
-- name: Add API VIP as TLS SAN when defined
+- name: Build effective k3s server args
   ansible.builtin.set_fact:
-    effective_k3s_server_args: "{{ k3s_server_extra_args + ['--tls-san=' + k3s_api_vip] }}"
-  when: k3s_api_vip | length > 0
-
-- name: Use server args without API VIP when undefined
-  ansible.builtin.set_fact:
-    effective_k3s_server_args: "{{ k3s_server_extra_args }}"
-  when: k3s_api_vip | length == 0
+    effective_k3s_server_args: >-
+      {{
+        k3s_server_extra_args +
+        (['--tls-san=' + k3s_api_vip] if k3s_api_vip | length > 0 else [])
+      }}
 
 - name: Check if k3s server is already installed
   ansible.builtin.stat:
@@ -47,6 +45,7 @@
     name: k3s
     enabled: true
     state: started
+  ignore_errors: "{{ ansible_check_mode }}"
 
 - name: Wait for Kubernetes API on this server
   ansible.builtin.wait_for:

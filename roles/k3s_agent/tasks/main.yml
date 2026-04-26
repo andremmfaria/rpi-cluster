@@ -21,3 +21,4 @@
     name: k3s-agent
     enabled: true
     state: started
+  ignore_errors: "{{ ansible_check_mode }}"
