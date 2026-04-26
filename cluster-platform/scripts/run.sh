@@ -138,18 +138,35 @@ apply_component() {
       kubectl apply -f infrastructure/ingress-nginx/
       success "ingress-nginx applied."
       ;;
+    longhorn)
+      info "Applying Longhorn namespace..."
+      kubectl apply -f infrastructure/longhorn/namespace.yaml
+      info "Applying Longhorn Helm release..."
+      kubectl apply -f infrastructure/longhorn/helm-release.yaml
+      info "Waiting for Longhorn CRDs to be established (this takes ~2 min)..."
+      kubectl wait --for=condition=Established \
+        crd/volumes.longhorn.io \
+        crd/nodes.longhorn.io \
+        crd/settings.longhorn.io \
+        --timeout=180s
+      info "Applying Longhorn UI ingress..."
+      kubectl apply -f infrastructure/longhorn/ingress.yaml
+      success "Longhorn applied."
+      ;;
     all)
-      warn "Applying all components in order: kube-vip → metallb → ingress-nginx"
+      warn "Applying all components in order: kube-vip → metallb → ingress-nginx → longhorn"
       echo
       apply_component kube-vip
       echo
       apply_component metallb
       echo
       apply_component ingress-nginx
+      echo
+      apply_component longhorn
       ;;
     *)
       error "Unknown component: '$component'"
-      error "Valid: kube-vip | metallb | ingress-nginx | all"
+      error "Valid: kube-vip | metallb | ingress-nginx | longhorn | all"
       exit 1
       ;;
   esac
@@ -172,16 +189,24 @@ diff_component() {
       info "Diffing ingress-nginx..."
       kubectl diff -f infrastructure/ingress-nginx/ || true
       ;;
+    longhorn)
+      info "Diffing Longhorn..."
+      kubectl diff -f infrastructure/longhorn/namespace.yaml || true
+      kubectl diff -f infrastructure/longhorn/helm-release.yaml || true
+      kubectl diff -f infrastructure/longhorn/ingress.yaml 2>/dev/null || true
+      ;;
     all)
       diff_component kube-vip
       echo
       diff_component metallb
       echo
       diff_component ingress-nginx
+      echo
+      diff_component longhorn
       ;;
     *)
       error "Unknown component: '$component'"
-      error "Valid: kube-vip | metallb | ingress-nginx | all"
+      error "Valid: kube-vip | metallb | ingress-nginx | longhorn | all"
       exit 1
       ;;
   esac
@@ -211,9 +236,15 @@ delete_component() {
       kubectl delete -f infrastructure/ingress-nginx/ --ignore-not-found
       success "ingress-nginx deleted."
       ;;
+    longhorn)
+      kubectl delete -f infrastructure/longhorn/ingress.yaml --ignore-not-found
+      kubectl delete -f infrastructure/longhorn/helm-release.yaml --ignore-not-found
+      kubectl delete -f infrastructure/longhorn/namespace.yaml --ignore-not-found
+      success "Longhorn deleted."
+      ;;
     *)
       error "Unknown component: '$component'"
-      error "Valid: kube-vip | metallb | ingress-nginx"
+      error "Valid: kube-vip | metallb | ingress-nginx | longhorn"
       exit 1
       ;;
   esac
@@ -231,6 +262,12 @@ cmd_status() {
   echo
   info "ingress-nginx"
   kubectl get pods,svc -n ingress-nginx 2>/dev/null || echo "  not found"
+  echo
+  info "Longhorn (longhorn-system)"
+  kubectl get pods -n longhorn-system 2>/dev/null || echo "  not found"
+  echo
+  info "Longhorn StorageClass"
+  kubectl get storageclass longhorn 2>/dev/null || echo "  not found"
 }
 
 main() {

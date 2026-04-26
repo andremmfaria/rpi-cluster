@@ -13,7 +13,8 @@ cluster-platform/
 ├── infrastructure/
 │   ├── kube-vip/        # HA API endpoint (VIP: 192.168.50.30)
 │   ├── metallb/         # LoadBalancer IPs on LAN (192.168.50.40–60)
-│   └── ingress-nginx/   # HTTP/S ingress controller (IP: 192.168.50.40)
+│   ├── ingress-nginx/   # HTTP/S ingress controller (IP: 192.168.50.40)
+│   └── longhorn/        # Replicated block storage on NVMe
 └── scripts/
     ├── run.sh           # kubectl wrapper (kubeconfig/apply/diff/delete/status/lint)
     └── act.sh           # Local CI runner via act
@@ -28,6 +29,7 @@ cluster-platform/
 | kube-vip      | `v1.1.2`       | `kubectl apply -f`       |
 | MetalLB       | `v0.15.3`      | `kubectl apply -k`       |
 | ingress-nginx | chart `4.15.1` | k3s `HelmChart` CRD      |
+| Longhorn      | `1.11.1`       | k3s `HelmChart` CRD      |
 
 ---
 
@@ -150,6 +152,36 @@ Runs the `cluster-platform-lint.yml` CI workflow locally via [act](https://githu
 
 ---
 
+### Longhorn
+
+Replicated block storage across all 6 nodes. Data path `/mnt/nvme/longhorn` on each node's NVMe SSD. 2 replicas by default. Exposes a `longhorn` StorageClass as the cluster default.
+
+Requires `open-iscsi` + `iscsid` running on all nodes — handled by the `cluster-setup` Ansible role.
+
+```bash
+./scripts/run.sh apply longhorn
+```
+
+Validate:
+
+```bash
+kubectl get storageclass longhorn
+kubectl get pods -n longhorn-system
+kubectl get nodes.longhorn.io -n longhorn-system
+```
+
+UI: `http://longhorn.kantharos.srv` (after DNS entry pointing to `192.168.50.40`)
+
+Test dynamic provisioning:
+
+```bash
+kubectl apply -f infrastructure/longhorn/test-pvc.yaml
+kubectl get pvc longhorn-test-pvc
+kubectl delete -f infrastructure/longhorn/test-pvc.yaml
+```
+
+---
+
 ## Network map
 
 | Endpoint             | Purpose                          |
@@ -158,21 +190,10 @@ Runs the `cluster-platform-lint.yml` CI workflow locally via [act](https://githu
 | `192.168.50.40`      | Ingress (nginx)                  |
 | `192.168.50.40–60`   | MetalLB LoadBalancer pool        |
 
----
+DNS entries (point to `192.168.50.40`):
 
-## CI
-
-Workflow: `.github/workflows/cluster-platform-lint.yml`
-Triggers on changes to `cluster-platform/**`.
-
-| Job             | What it does                              |
-| --------------- | ----------------------------------------- |
-| Manifests Lint  | `yamllint .` against `cluster-platform/`  |
-
-Run locally:
-
-```bash
-./scripts/act.sh lint
+```
+longhorn.kantharos.srv
 ```
 
 ---
