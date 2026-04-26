@@ -1,0 +1,91 @@
+- name: Check NVMe partition exists
+  ansible.builtin.stat:
+    path: "{{ nvme_device }}"
+  register: nvme_partition_stat
+
+- name: Check NVMe disk exists
+  ansible.builtin.stat:
+    path: "{{ nvme_disk }}"
+  register: nvme_disk_stat
+  when: not nvme_partition_stat.stat.exists
+
+- name: Fail if neither NVMe partition nor disk exists
+  ansible.builtin.fail:
+    msg: "Neither {{ nvme_device }} nor {{ nvme_disk }} found on {{ inventory_hostname }}"
+  when:
+    - not nvme_partition_stat.stat.exists
+    - not nvme_disk_stat.stat.exists
+
+- name: Create GPT partition table on NVMe disk
+  community.general.parted:
+    device: "{{ nvme_disk }}"
+    label: gpt
+    state: present
+  when:
+    - not nvme_partition_stat.stat.exists
+    - nvme_disk_stat.stat.exists
+
+- name: Create primary partition using full NVMe disk
+  community.general.parted:
+    device: "{{ nvme_disk }}"
+    number: 1
+    label: gpt
+    part_start: "1MiB"
+    part_end: "100%"
+    state: present
+  when:
+    - not nvme_partition_stat.stat.exists
+    - nvme_disk_stat.stat.exists
+
+- name: Wait for partition device to appear
+  ansible.builtin.wait_for:
+    path: "{{ nvme_device }}"
+    timeout: 30
+  when:
+    - not nvme_partition_stat.stat.exists
+    - nvme_disk_stat.stat.exists
+
+- name: Check filesystem type
+  ansible.builtin.command: "blkid -o value -s TYPE {{ nvme_device }}"
+  register: fs_type
+  failed_when: false
+  changed_when: false
+
+- name: Format NVMe if unformatted
+  ansible.builtin.filesystem:
+    fstype: "{{ nvme_fstype }}"
+    dev: "{{ nvme_device }}"
+  when: fs_type.rc != 0
+
+- name: Create NVMe mount point
+  ansible.builtin.file:
+    path: "{{ nvme_mount }}"
+    state: directory
+    mode: "0755"
+
+- name: Get NVMe UUID
+  ansible.builtin.command: "blkid -o value -s UUID {{ nvme_device }}"
+  register: nvme_uuid
+  changed_when: false
+
+- name: Mount NVMe by UUID and persist in fstab
+  ansible.posix.mount:
+    path: "{{ nvme_mount }}"
+    src: "UUID={{ nvme_uuid.stdout }}"
+    fstype: "{{ nvme_fstype }}"
+    opts: "{{ nvme_mount_opts }}"
+    state: mounted
+
+- name: Verify mount is active
+  ansible.builtin.command: mountpoint -q {{ nvme_mount }}
+  register: mount_check
+  failed_when: mount_check.rc != 0
+  changed_when: false
+
+- name: Create k3s data directory
+  ansible.builtin.file:
+    path: "{{ k3s_data_dir }}"
+    state: directory
+    owner: "{{ cluster_service_user }}"
+    group: "{{ cluster_service_group }}"
+    mode: "0755"

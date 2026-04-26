@@ -1,0 +1,7 @@
+nvme_disk: /dev/sda
+nvme_device: /dev/sda1
+nvme_mount: /mnt/nvme
+nvme_fstype: ext4
+nvme_mount_opts: defaults,noatime,nofail,x-systemd.device-timeout=10
+
+k3s_data_dir: /mnt/nvme/k3s
