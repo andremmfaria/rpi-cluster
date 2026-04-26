@@ -8,7 +8,6 @@ required_packages:
   - jq
   - nfs-common
   - nvme-cli
-  - open-iscsi
   - openssh-server
   - parted
   - python3

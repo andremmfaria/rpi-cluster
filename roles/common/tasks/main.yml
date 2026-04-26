@@ -122,12 +122,6 @@
     validate: "sshd -t -f %s"
   notify: Restart ssh
 
-- name: Enable and start iscsid
-  ansible.builtin.systemd:
-    name: iscsid
-    enabled: true
-    state: started
-
 - name: Configure kernel modules for Kubernetes
   ansible.builtin.copy:
     dest: /etc/modules-load.d/k3s.conf

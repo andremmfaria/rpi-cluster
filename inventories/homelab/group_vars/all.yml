@@ -28,6 +28,6 @@ cluster_service_uid: 1050
 cluster_service_gid: 1050
 
 ssh_admin_user: rpi
-ssh_admin_pubkey_path: "~/.ssh/id_ed25519.pub"
+ssh_admin_pubkey_path: "~/.ssh/id_rpi.pub"
 
 disable_ssh_password_auth: true
