@@ -78,6 +78,7 @@ Or one at a time:
 ./scripts/run.sh apply kube-vip
 ./scripts/run.sh apply metallb
 ./scripts/run.sh apply ingress-nginx
+./scripts/run.sh apply longhorn
 ```
 
 ---
@@ -104,7 +105,7 @@ kubectl --server=https://192.168.50.30:6443 get nodes
 ### MetalLB
 
 Assigns real LAN IPs from `192.168.50.40–60` to `LoadBalancer` services.
-Applied via kustomize — upstream manifest is referenced remotely, `pool.yaml` adds the `IPAddressPool` and `L2Advertisement`.
+Applied in two steps — upstream controller manifest first, then the `IPAddressPool` and `L2Advertisement` pool config once CRDs are established.
 
 Validate:
 
@@ -124,31 +125,6 @@ Validate:
 kubectl get svc -n ingress-nginx
 # EXTERNAL-IP should be 192.168.50.40
 ```
-
----
-
-## Scripts reference
-
-### `scripts/run.sh`
-
-| Command | Description |
-| ------- | ----------- |
-| `kubeconfig --server <ip> --user <user> --key <key>` | Fetch kubeconfig from a control-plane node |
-| `apply <component\|all>` | Apply one or all components in order |
-| `diff <component\|all>` | Dry-run diff against live cluster |
-| `delete <component>` | Remove a component (requires confirmation) |
-| `status` | Show pods/services for all platform namespaces |
-| `lint` | Run yamllint on all manifests |
-
-### `scripts/act.sh`
-
-Runs the `cluster-platform-lint.yml` CI workflow locally via [act](https://github.com/nektos/act).
-
-| Command | Description |
-| ------- | ----------- |
-| `install` | Download and install act |
-| `lint` | Run the cluster-platform lint workflow |
-| `all` | Same as lint (only one workflow in this module) |
 
 ---
 
@@ -182,6 +158,31 @@ kubectl delete -f infrastructure/longhorn/test-pvc.yaml
 
 ---
 
+## Scripts reference
+
+### `scripts/run.sh`
+
+| Command | Description |
+| ------- | ----------- |
+| `kubeconfig --server <ip> --user <user> --key <key>` | Fetch kubeconfig from a control-plane node |
+| `apply <component\|all>` | Apply one or all components in order |
+| `diff <component\|all>` | Dry-run diff against live cluster |
+| `delete <component>` | Remove a component (requires confirmation) |
+| `status` | Show pods/services for all platform namespaces |
+| `lint` | Run yamllint on all manifests |
+
+### `scripts/act.sh`
+
+Runs the `cluster-platform-lint.yml` CI workflow locally via [act](https://github.com/nektos/act).
+
+| Command | Description |
+| ------- | ----------- |
+| `install` | Download and install act |
+| `lint` | Run the cluster-platform lint workflow |
+| `all` | Same as lint (only one workflow in this module) |
+
+---
+
 ## Network map
 
 | Endpoint             | Purpose                          |
@@ -194,16 +195,4 @@ DNS entries (point to `192.168.50.40`):
 
 ```
 longhorn.kantharos.srv
-```
-
----
-
-## DNS (minimal, pre-cert-manager)
-
-Point these at `192.168.50.40` in AdGuard / router:
-
-```
-rancher.lab
-grafana.lab
-longhorn.lab
 ```
