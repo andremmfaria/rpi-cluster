@@ -1,0 +1,30 @@
+required_packages:
+  - ca-certificates
+  - curl
+  - e2fsprogs
+  - htop
+  - iotop
+  - jq
+  - nfs-common
+  - nvme-cli
+  - open-iscsi
+  - openssh-server
+  - parted
+  - python3
+  - python3-apt
+  - smartmontools
+  - sudo
+  - sysstat
+  - xfsprogs
+
+boot_cmdline_path: /boot/firmware/cmdline.txt
+
+cluster_service_user: k3s
+cluster_service_group: k3s
+cluster_service_uid: 1050
+cluster_service_gid: 1050
+
+ssh_admin_user: rpi
+ssh_admin_pubkey_path: "~/.ssh/id_ed25519.pub"
+
+disable_ssh_password_auth: true

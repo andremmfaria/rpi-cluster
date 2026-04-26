@@ -1,0 +1,118 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Check k3s group exists
+      ansible.builtin.command: getent group k3s
+      changed_when: false
+
+    - name: Check k3s user exists
+      ansible.builtin.command: id k3s
+      changed_when: false
+
+    - name: Stat /etc/rancher
+      ansible.builtin.stat:
+        path: /etc/rancher
+      register: etc_rancher
+
+    - name: Assert /etc/rancher is a directory
+      ansible.builtin.assert:
+        that: etc_rancher.stat.isdir is defined and etc_rancher.stat.isdir
+        fail_msg: "/etc/rancher is missing or not a directory"
+
+    - name: Stat /var/lib/rancher
+      ansible.builtin.stat:
+        path: /var/lib/rancher
+      register: var_lib_rancher
+
+    - name: Assert /var/lib/rancher is a directory
+      ansible.builtin.assert:
+        that: var_lib_rancher.stat.isdir is defined and var_lib_rancher.stat.isdir
+        fail_msg: "/var/lib/rancher is missing or not a directory"
+
+    - name: Stat /var/lib/kubelet
+      ansible.builtin.stat:
+        path: /var/lib/kubelet
+      register: var_lib_kubelet
+
+    - name: Assert /var/lib/kubelet is a directory
+      ansible.builtin.assert:
+        that: var_lib_kubelet.stat.isdir is defined and var_lib_kubelet.stat.isdir
+        fail_msg: "/var/lib/kubelet is missing or not a directory"
+
+    - name: Stat tmpfiles.d config
+      ansible.builtin.stat:
+        path: /etc/tmpfiles.d/k3s-cluster-user.conf
+      register: tmpfiles_conf
+
+    - name: Assert tmpfiles.d config exists
+      ansible.builtin.assert:
+        that: tmpfiles_conf.stat.exists
+        fail_msg: "/etc/tmpfiles.d/k3s-cluster-user.conf is missing"
+
+    - name: Stat sudoers file for admin user
+      ansible.builtin.stat:
+        path: /etc/sudoers.d/rpi
+      register: sudoers_rpi
+
+    - name: Assert sudoers file exists
+      ansible.builtin.assert:
+        that: sudoers_rpi.stat.exists
+        fail_msg: "/etc/sudoers.d/rpi is missing"
+
+    - name: Stat kernel modules config
+      ansible.builtin.stat:
+        path: /etc/modules-load.d/k3s.conf
+      register: modules_conf
+
+    - name: Assert kernel modules config exists
+      ansible.builtin.assert:
+        that: modules_conf.stat.exists
+        fail_msg: "/etc/modules-load.d/k3s.conf is missing"
+
+    - name: Check br_netfilter in modules config
+      ansible.builtin.command: grep br_netfilter /etc/modules-load.d/k3s.conf
+      changed_when: false
+
+    - name: Check overlay in modules config
+      ansible.builtin.command: grep overlay /etc/modules-load.d/k3s.conf
+      changed_when: false
+
+    - name: Stat sysctl config
+      ansible.builtin.stat:
+        path: /etc/sysctl.d/99-k3s.conf
+      register: sysctl_conf
+
+    - name: Assert sysctl config exists
+      ansible.builtin.assert:
+        that: sysctl_conf.stat.exists
+        fail_msg: "/etc/sysctl.d/99-k3s.conf is missing"
+
+    - name: Check ip_forward in sysctl config
+      ansible.builtin.command: grep ip_forward /etc/sysctl.d/99-k3s.conf
+      changed_when: false
+
+    - name: Check cgroup settings in boot cmdline
+      ansible.builtin.command: grep "cgroup_memory=1" /boot/firmware/cmdline.txt
+      changed_when: false
+
+    - name: Check cgroup_enable in boot cmdline
+      ansible.builtin.command: grep "cgroup_enable=memory" /boot/firmware/cmdline.txt
+      changed_when: false
+
+    - name: Stat WiFi kernel module blacklist
+      ansible.builtin.stat:
+        path: /etc/modprobe.d/blacklist-wifi.conf
+      register: wifi_blacklist
+
+    - name: Assert WiFi blacklist exists
+      ansible.builtin.assert:
+        that: wifi_blacklist.stat.exists
+        fail_msg: "/etc/modprobe.d/blacklist-wifi.conf is missing"
+
+    - name: Check DenyUsers k3s in sshd_config
+      ansible.builtin.command: grep "DenyUsers k3s" /etc/ssh/sshd_config
+      changed_when: false

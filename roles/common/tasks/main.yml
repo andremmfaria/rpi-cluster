@@ -1,0 +1,202 @@
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Ensure hostname is in /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^127.0.1.1"
+    line: "127.0.1.1 {{ inventory_hostname }}"
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name: "{{ required_packages }}"
+    state: present
+
+# ---- CLUSTER SERVICE USER ----
+
+- name: Create cluster service group
+  ansible.builtin.group:
+    name: "{{ cluster_service_group }}"
+    gid: "{{ cluster_service_gid }}"
+    system: true
+    state: present
+
+- name: Create cluster service user without SSH login
+  ansible.builtin.user:
+    name: "{{ cluster_service_user }}"
+    uid: "{{ cluster_service_uid }}"
+    group: "{{ cluster_service_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    password: "!"
+    state: present
+
+- name: Create cluster service directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ cluster_service_user }}"
+    group: "{{ cluster_service_group }}"
+    mode: "0755"
+  loop:
+    - /etc/rancher
+    - /var/lib/rancher
+    - /var/lib/kubelet
+    - /var/lib/cni
+    - /run/k3s
+
+- name: Allow cluster service group to manage k3s paths
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/k3s-cluster-user.conf
+    mode: "0644"
+    content: |
+      d /run/k3s 0755 {{ cluster_service_user }} {{ cluster_service_group }} -
+      d /var/lib/rancher 0755 {{ cluster_service_user }} {{ cluster_service_group }} -
+      d /var/lib/kubelet 0755 {{ cluster_service_user }} {{ cluster_service_group }} -
+      d /var/lib/cni 0755 {{ cluster_service_user }} {{ cluster_service_group }} -
+
+# ---- SSH ADMIN KEY HARDENING ----
+
+- name: Ensure SSH admin user exists
+  ansible.builtin.user:
+    name: "{{ ssh_admin_user }}"
+    shell: /bin/bash
+    state: present
+
+- name: Ensure SSH admin user has sudo privileges
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ ssh_admin_user }}"
+    mode: "0440"
+    validate: "visudo -cf %s"
+    content: |
+      {{ ssh_admin_user }} ALL=(ALL) NOPASSWD:ALL
+
+- name: Install SSH public key for admin user
+  ansible.posix.authorized_key:
+    user: "{{ ssh_admin_user }}"
+    key: "{{ lookup('file', ssh_admin_pubkey_path) }}"
+    state: present
+    exclusive: true
+
+- name: Disable password authentication in sshd
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?PasswordAuthentication"
+    line: "PasswordAuthentication no"
+    validate: "sshd -t -f %s"
+  when: disable_ssh_password_auth | bool
+  notify: restart ssh
+
+- name: Disable keyboard-interactive authentication in sshd
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?KbdInteractiveAuthentication"
+    line: "KbdInteractiveAuthentication no"
+    validate: "sshd -t -f %s"
+  when: disable_ssh_password_auth | bool
+  notify: restart ssh
+
+- name: Disable challenge-response authentication in sshd
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?ChallengeResponseAuthentication"
+    line: "ChallengeResponseAuthentication no"
+    validate: "sshd -t -f %s"
+  when: disable_ssh_password_auth | bool
+  notify: restart ssh
+
+- name: Prevent cluster service user from SSH login
+  ansible.builtin.blockinfile:
+    path: /etc/ssh/sshd_config
+    marker: "# {mark} ANSIBLE MANAGED K3S SERVICE USER SSH DENY"
+    block: |
+      DenyUsers {{ cluster_service_user }}
+    validate: "sshd -t -f %s"
+  notify: restart ssh
+
+- name: Enable and start iscsid
+  ansible.builtin.systemd:
+    name: iscsid
+    enabled: true
+    state: started
+
+- name: Configure kernel modules for Kubernetes
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k3s.conf
+    mode: "0644"
+    content: |
+      br_netfilter
+      overlay
+
+- name: Load br_netfilter module
+  community.general.modprobe:
+    name: br_netfilter
+    state: present
+
+- name: Load overlay module
+  community.general.modprobe:
+    name: overlay
+    state: present
+
+- name: Configure Kubernetes sysctl values
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-k3s.conf
+    mode: "0644"
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+
+- name: Apply sysctl values
+  ansible.builtin.command: sysctl --system
+  changed_when: false
+
+- name: Read boot cmdline
+  ansible.builtin.slurp:
+    src: "{{ boot_cmdline_path }}"
+  register: boot_cmdline
+
+- name: Build updated boot cmdline
+  ansible.builtin.set_fact:
+    updated_cmdline: >-
+      {{
+        (
+          (boot_cmdline.content | b64decode).split()
+          + ['cgroup_enable=cpuset', 'cgroup_enable=memory', 'cgroup_memory=1']
+        ) | unique | join(' ')
+      }}
+
+- name: Write updated boot cmdline
+  ansible.builtin.copy:
+    dest: "{{ boot_cmdline_path }}"
+    mode: "0644"
+    content: "{{ updated_cmdline }}\n"
+  notify: reboot node
+
+- name: Disable WiFi via boot config (dtoverlay)
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    regexp: "^dtoverlay=disable-wifi"
+    line: "dtoverlay=disable-wifi"
+    create: true
+  notify: reboot node
+
+- name: Block WiFi kernel module (brcmfmac)
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/blacklist-wifi.conf
+    mode: "0644"
+    content: |
+      blacklist brcmfmac
+      blacklist brcmutil
+
+- name: Disable WiFi via rfkill
+  ansible.builtin.command: rfkill block wifi
+  changed_when: false
+  failed_when: false
