@@ -1,0 +1,32 @@
+cluster_name: rpi-k3s
+
+ansible_user: rpi
+ansible_password: "rpi_passwd"
+ansible_become_password: "rpi_passwd"
+ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+
+k3s_version: "v1.35.3+k3s1"
+k3s_token: "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET"
+
+k3s_api_vip: "192.168.50.30"
+
+cluster_cidr: "10.42.0.0/16"
+service_cidr: "10.43.0.0/16"
+
+nvme_disk: "/dev/sda"
+nvme_device: "/dev/sda1"
+nvme_mount: "/mnt/nvme"
+nvme_fstype: "ext4"
+nvme_mount_opts: "defaults,noatime,nofail,x-systemd.device-timeout=10"
+
+k3s_data_dir: "/mnt/nvme/k3s"
+
+cluster_service_user: k3s
+cluster_service_group: k3s
+cluster_service_uid: 1050
+cluster_service_gid: 1050
+
+ssh_admin_user: rpi
+ssh_admin_pubkey_path: "~/.ssh/id_ed25519.pub"
+
+disable_ssh_password_auth: true
