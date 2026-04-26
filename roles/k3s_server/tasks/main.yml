@@ -1,0 +1,54 @@
+- name: Add API VIP as TLS SAN when defined
+  ansible.builtin.set_fact:
+    effective_k3s_server_args: "{{ k3s_server_extra_args + ['--tls-san=' + k3s_api_vip] }}"
+  when: k3s_api_vip | length > 0
+
+- name: Use server args without API VIP when undefined
+  ansible.builtin.set_fact:
+    effective_k3s_server_args: "{{ k3s_server_extra_args }}"
+  when: k3s_api_vip | length == 0
+
+- name: Check if k3s server is already installed
+  ansible.builtin.stat:
+    path: /etc/systemd/system/k3s.service
+  register: k3s_service
+
+- name: Install initial k3s server # noqa: risky-shell-pipe
+  ansible.builtin.shell: |
+    curl -sfL https://get.k3s.io | \
+    INSTALL_K3S_VERSION="{{ k3s_version }}" \
+    K3S_TOKEN="{{ k3s_token }}" \
+    sh -s - server \
+      --cluster-init \
+      {{ effective_k3s_server_args | join(' ') }}
+  no_log: true
+  changed_when: true
+  when:
+    - not k3s_service.stat.exists
+    - k3s_cluster_init | bool
+
+- name: Install joining k3s server # noqa: risky-shell-pipe
+  ansible.builtin.shell: |
+    curl -sfL https://get.k3s.io | \
+    INSTALL_K3S_VERSION="{{ k3s_version }}" \
+    K3S_TOKEN="{{ k3s_token }}" \
+    sh -s - server \
+      --server {{ k3s_server_url }} \
+      {{ effective_k3s_server_args | join(' ') }}
+  no_log: true
+  changed_when: true
+  when:
+    - not k3s_service.stat.exists
+    - not k3s_cluster_init | bool
+
+- name: Enable and start k3s
+  ansible.builtin.systemd:
+    name: k3s
+    enabled: true
+    state: started
+
+- name: Wait for Kubernetes API on this server
+  ansible.builtin.wait_for:
+    host: "{{ node_ip }}"
+    port: 6443
+    timeout: 180
