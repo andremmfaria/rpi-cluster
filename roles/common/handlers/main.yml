@@ -1,8 +1,9 @@
-- name: reboot node
+---
+- name: Reboot node
   ansible.builtin.reboot:
     reboot_timeout: 300
 
-- name: restart ssh
+- name: Restart ssh
   ansible.builtin.systemd:
     name: ssh
     state: restarted

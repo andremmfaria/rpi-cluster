@@ -1,3 +1,4 @@
+---
 - name: Set hostname
   ansible.builtin.hostname:
     name: "{{ inventory_hostname }}"
@@ -92,7 +93,7 @@
     line: "PasswordAuthentication no"
     validate: "sshd -t -f %s"
   when: disable_ssh_password_auth | bool
-  notify: restart ssh
+  notify: Restart ssh
 
 - name: Disable keyboard-interactive authentication in sshd
   ansible.builtin.lineinfile:
@@ -101,7 +102,7 @@
     line: "KbdInteractiveAuthentication no"
     validate: "sshd -t -f %s"
   when: disable_ssh_password_auth | bool
-  notify: restart ssh
+  notify: Restart ssh
 
 - name: Disable challenge-response authentication in sshd
   ansible.builtin.lineinfile:
@@ -110,7 +111,7 @@
     line: "ChallengeResponseAuthentication no"
     validate: "sshd -t -f %s"
   when: disable_ssh_password_auth | bool
-  notify: restart ssh
+  notify: Restart ssh
 
 - name: Prevent cluster service user from SSH login
   ansible.builtin.blockinfile:
@@ -119,7 +120,7 @@
     block: |
       DenyUsers {{ cluster_service_user }}
     validate: "sshd -t -f %s"
-  notify: restart ssh
+  notify: Restart ssh
 
 - name: Enable and start iscsid
   ansible.builtin.systemd:
@@ -178,7 +179,7 @@
     dest: "{{ boot_cmdline_path }}"
     mode: "0644"
     content: "{{ updated_cmdline }}\n"
-  notify: reboot node
+  notify: Reboot node
 
 - name: Disable WiFi via boot config (dtoverlay)
   ansible.builtin.lineinfile:
@@ -186,7 +187,7 @@
     regexp: "^dtoverlay=disable-wifi"
     line: "dtoverlay=disable-wifi"
     create: true
-  notify: reboot node
+  notify: Reboot node
 
 - name: Block WiFi kernel module (brcmfmac)
   ansible.builtin.copy:
