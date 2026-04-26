@@ -1,0 +1,22 @@
+- name: Check if k3s agent is already installed
+  ansible.builtin.stat:
+    path: /etc/systemd/system/k3s-agent.service
+  register: k3s_agent_service
+
+- name: Install k3s agent # noqa: risky-shell-pipe
+  ansible.builtin.shell: |
+    curl -sfL https://get.k3s.io | \
+    INSTALL_K3S_VERSION="{{ k3s_version }}" \
+    K3S_TOKEN="{{ k3s_token }}" \
+    sh -s - agent \
+      --server {{ k3s_server_url }} \
+      {{ k3s_agent_extra_args | join(' ') }}
+  no_log: true
+  changed_when: true
+  when: not k3s_agent_service.stat.exists
+
+- name: Enable and start k3s-agent
+  ansible.builtin.systemd:
+    name: k3s-agent
+    enabled: true
+    state: started

@@ -1,0 +1,11 @@
+k3s_version: "v1.35.3+k3s1"
+k3s_token: "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET"
+
+k3s_first_server: "{{ groups['k3s_servers'][0] }}"
+k3s_server_url: "https://{{ hostvars[k3s_first_server].node_ip }}:6443"
+
+k3s_data_dir: /mnt/nvme/k3s
+
+k3s_agent_extra_args:
+  - "--node-ip={{ node_ip }}"
+  - "--data-dir={{ k3s_data_dir }}"
