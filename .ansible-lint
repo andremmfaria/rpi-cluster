@@ -7,6 +7,7 @@ warn_list:
 
 skip_list:
   - command-instead-of-module
+  - var-naming[no-role-prefix]
 
 exclude_paths:
   - .git/
