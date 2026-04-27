@@ -37,9 +37,11 @@ var setupPingCmd = &cobra.Command{
 	Short: "Pre-flight connectivity and hardware check",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		inv := inventoryFlag(cmd)
+		limit, _ := cmd.Flags().GetString("limit")
 		printer.Header("Pre-flight validation — inventory: " + inv)
 		return ansible.NewPlaybook(cfg.Dirs.Setup, "playbooks/00-ping.yml").
 			WithInventory(inv).
+			WithLimit(limit).
 			Run(context.Background())
 	},
 }
@@ -84,9 +86,13 @@ var setupCheckCmd = &cobra.Command{
 	Short: "Dry-run deploy (--check --diff)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		inv := inventoryFlag(cmd)
+		limit, _ := cmd.Flags().GetString("limit")
+		tags, _ := cmd.Flags().GetString("tags")
 		printer.Header("Dry-run (check + diff) — inventory: " + inv)
 		return ansible.NewPlaybook(cfg.Dirs.Setup, "site.yml").
 			WithInventory(inv).
+			WithLimit(limit).
+			WithTags(tags).
 			WithCheckMode().
 			Run(context.Background())
 	},

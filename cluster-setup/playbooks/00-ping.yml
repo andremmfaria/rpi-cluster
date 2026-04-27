@@ -43,7 +43,7 @@
       when: not nvme_partition.stat.exists
 
     - name: Get NVMe size
-      ansible.builtin.command: lsblk -b -n -o SIZE /dev/sda
+      ansible.builtin.command: lsblk -b -n -d -o SIZE /dev/sda
       register: nvme_size
       changed_when: false
 
