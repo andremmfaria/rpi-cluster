@@ -2,7 +2,7 @@
 
 GitOps-managed Kubernetes platform layer for the rpi-cluster.
 
-Applied via `scripts/run.sh` — no Flux or ArgoCD yet.
+Applied via `scripts/run.sh platform` from the repo root — no Flux or ArgoCD yet.
 
 ---
 
@@ -10,15 +10,14 @@ Applied via `scripts/run.sh` — no Flux or ArgoCD yet.
 
 ```
 cluster-platform/
-├── infrastructure/
-│   ├── kube-vip/        # HA API endpoint (VIP: 192.168.50.30)
-│   ├── metallb/         # LoadBalancer IPs on LAN (192.168.50.40–60)
-│   ├── ingress-nginx/   # HTTP/S ingress controller (IP: 192.168.50.40)
-│   └── longhorn/        # Replicated block storage on NVMe
-└── scripts/
-    ├── run.sh           # kubectl wrapper (kubeconfig/apply/diff/delete/status/lint)
-    └── act.sh           # Local CI runner via act
+└── infrastructure/
+    ├── kube-vip/        # HA API endpoint (VIP: 192.168.50.30)
+    ├── metallb/         # LoadBalancer IPs on LAN (192.168.50.40–60)
+    ├── ingress-nginx/   # HTTP/S ingress controller (IP: 192.168.50.40)
+    └── longhorn/        # Replicated block storage on NVMe
 ```
+
+Scripts live at the repo root — see [`scripts/`](../scripts/).
 
 ---
 
@@ -41,7 +40,7 @@ k3s writes its kubeconfig to `/etc/rancher/k3s/k3s.yaml` on the control-plane no
 Fetch it and rewrite the server address to the node IP:
 
 ```bash
-./scripts/run.sh kubeconfig \
+./scripts/run.sh platform kubeconfig \
   --server 192.168.50.20 \
   --user rpi \
   --key ~/.ssh/id_rpi
@@ -56,7 +55,7 @@ export KUBECONFIG=~/.kube/rpi-cluster.yaml
 After kube-vip is deployed, re-fetch pointing at the VIP:
 
 ```bash
-./scripts/run.sh kubeconfig \
+./scripts/run.sh platform kubeconfig \
   --server 192.168.50.30 \
   --user rpi \
   --key ~/.ssh/id_rpi
@@ -69,16 +68,16 @@ After kube-vip is deployed, re-fetch pointing at the VIP:
 Components must be applied in order — each depends on the previous.
 
 ```bash
-./scripts/run.sh apply all
+./scripts/run.sh platform apply all
 ```
 
 Or one at a time:
 
 ```bash
-./scripts/run.sh apply kube-vip
-./scripts/run.sh apply metallb
-./scripts/run.sh apply ingress-nginx
-./scripts/run.sh apply longhorn
+./scripts/run.sh platform apply kube-vip
+./scripts/run.sh platform apply metallb
+./scripts/run.sh platform apply ingress-nginx
+./scripts/run.sh platform apply longhorn
 ```
 
 ---
@@ -135,7 +134,7 @@ Replicated block storage across all 6 nodes. Data path `/mnt/nvme/longhorn` on e
 Requires `open-iscsi` + `iscsid` running on all nodes — handled by the `cluster-setup` Ansible role.
 
 ```bash
-./scripts/run.sh apply longhorn
+./scripts/run.sh platform apply longhorn
 ```
 
 Validate:
@@ -160,26 +159,26 @@ kubectl delete -f infrastructure/longhorn/test-pvc.yaml
 
 ## Scripts reference
 
-### `scripts/run.sh`
+All scripts are at the repo root `scripts/`. Run from the repo root.
+
+### `scripts/run.sh platform`
 
 | Command | Description |
 | ------- | ----------- |
-| `kubeconfig --server <ip> --user <user> --key <key>` | Fetch kubeconfig from a control-plane node |
-| `apply <component\|all>` | Apply one or all components in order |
-| `diff <component\|all>` | Dry-run diff against live cluster |
-| `delete <component>` | Remove a component (requires confirmation) |
-| `status` | Show pods/services for all platform namespaces |
-| `lint` | Run yamllint on all manifests |
+| `platform kubeconfig --server <ip> --user <user> --key <key>` | Fetch kubeconfig from a control-plane node |
+| `platform apply <component\|all>` | Apply one or all components in order |
+| `platform diff <component\|all>` | Dry-run diff against live cluster |
+| `platform delete <component>` | Remove a component (requires confirmation) |
+| `platform status` | Show pods/services for all platform namespaces |
+| `platform lint` | Run yamllint on cluster-platform manifests |
 
 ### `scripts/act.sh`
-
-Runs the `cluster-platform-lint.yml` CI workflow locally via [act](https://github.com/nektos/act).
 
 | Command | Description |
 | ------- | ----------- |
 | `install` | Download and install act |
-| `lint` | Run the cluster-platform lint workflow |
-| `all` | Same as lint (only one workflow in this module) |
+| `lint platform` | Run cluster-platform lint workflow |
+| `lint all` | Run all lint workflows |
 
 ---
 

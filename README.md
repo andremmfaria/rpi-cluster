@@ -7,7 +7,8 @@ Monorepo for a 6-node Raspberry Pi Kubernetes cluster — from bare-metal provis
 ```
 rpi-cluster/
 ├── cluster-setup/        # Ansible automation — OS hardening, storage, k3s bootstrap
-└── cluster-platform/     # GitOps manifests — platform infrastructure (kube-vip, MetalLB, ingress)
+├── cluster-platform/     # GitOps manifests — platform infrastructure (kube-vip, MetalLB, ingress, Longhorn)
+└── scripts/              # Unified management scripts (run.sh, act.sh)
 ```
 
 ## Modules
@@ -25,12 +26,25 @@ See [`cluster-setup/README.md`](./cluster-setup/README.md) for full documentatio
 
 ### [`cluster-platform/`](./cluster-platform/README.md)
 
-GitOps-managed Kubernetes platform layer — applied with `scripts/run.sh` after the cluster is bootstrapped.
+GitOps-managed Kubernetes platform layer — applied with `scripts/run.sh platform` after the cluster is bootstrapped.
 
 - kube-vip — HA API endpoint (VIP `192.168.50.30`)
 - MetalLB — LoadBalancer IPs on LAN (`192.168.50.40–60`)
 - ingress-nginx — HTTP/S routing (`192.168.50.40`)
 - Longhorn — replicated block storage on NVMe (`longhorn.kantharos.srv`)
+
+See [`cluster-platform/README.md`](./cluster-platform/README.md) for full documentation.
+
+### [`scripts/`](./scripts/)
+
+Unified management scripts for the entire repo.
+
+| Script | Usage | Description |
+| ------ | ----- | ----------- |
+| `run.sh setup <cmd>` | `deps` `ping` `deploy` `reset` `check` `lint` | Ansible wrapper |
+| `run.sh platform <cmd>` | `kubeconfig` `apply` `diff` `delete` `status` `lint` | kubectl wrapper |
+| `run.sh cluster shutdown` | | Graceful cluster shutdown |
+| `act.sh lint setup\|platform\|all` | | Run CI workflows locally via act |
 
 See [`cluster-platform/README.md`](./cluster-platform/README.md) for full documentation.
 

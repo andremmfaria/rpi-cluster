@@ -157,11 +157,10 @@ rpi-cluster/
 │   └── k3s_post/                      # Post-install: wait for nodes, apply labels
 │       ├── defaults/main.yml
 │       └── tasks/main.yml
-├── scripts/
-│   ├── run.sh                         # Ansible wrapper (deps/ping/deploy/reset/check/lint)
-│   └── act.sh                         # Local CI runner via act (lint/all)
 └── site.yml                           # Master playbook
 ```
+
+Scripts live at the repo root — see [`scripts/`](../scripts/).
 
 ---
 
@@ -560,9 +559,9 @@ ansible-playbook -i inventories/homelab/hosts.yml site.yml
 Or use the helper script (does steps 2 + 3 together):
 
 ```bash
-./scripts/run.sh deps
-./scripts/run.sh ping
-./scripts/run.sh deploy
+./scripts/run.sh setup deps
+./scripts/run.sh setup ping
+./scripts/run.sh setup deploy
 ```
 
 Approximate runtime: 10–20 minutes depending on network speed and node responsiveness.
@@ -653,13 +652,13 @@ GitHub Actions runs on every push and pull request to `main`/`master` touching `
 
 Workflow file: `.github/workflows/cluster-setup-lint.yml`
 
-No molecule/container tests — role logic is validated on physical hardware. Use `./scripts/run.sh check` for a live dry-run against the real inventory before applying.
+No molecule/container tests — role logic is validated on physical hardware. Use `./scripts/run.sh setup check` for a live dry-run against the real inventory before applying.
 
 To run the same checks locally:
 
 ```bash
-./scripts/run.sh lint          # yamllint + ansible-lint
-./scripts/act.sh lint          # cluster-setup CI workflow via act (requires Docker)
+./scripts/run.sh setup lint          # yamllint + ansible-lint
+./scripts/act.sh lint setup          # cluster-setup CI workflow via act (requires Docker)
 ```
 
 ---
