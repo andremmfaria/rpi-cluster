@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SETUP_DIR="$REPO_ROOT/cluster-setup"
 PLATFORM_DIR="$REPO_ROOT/cluster-platform"
+CLI_DIR="$REPO_ROOT/cluster-cli"
 
 KUBECONFIG="${KUBECONFIG:-$HOME/.kube/rpi-cluster.yaml}"
 export KUBECONFIG
@@ -32,6 +33,7 @@ ${BOLD}Modules:${RESET}
   setup      Ansible — provision and bootstrap nodes
   platform   kubectl — manage cluster infrastructure
   cluster    cross-cutting cluster operations
+  cli        cluster-cli Go binary — build, test, install
 
 ${BOLD}setup commands:${RESET}
   deps          Install required Ansible Galaxy collections
@@ -343,9 +345,41 @@ delete_component() {
       ;;
     ingress-nginx) kubectl delete -f infrastructure/ingress-nginx/ --ignore-not-found; success "ingress-nginx deleted." ;;
     longhorn)
-      kubectl delete -f infrastructure/longhorn/ingress.yaml --ignore-not-found
+      # Webhooks must go first: Helm uninstall deletes the webhook service, leaving
+      # the webhook config pointing at a dead endpoint — every subsequent resource
+      # deletion in longhorn-system then hangs indefinitely.
+      info "Removing Longhorn admission webhooks..."
+      kubectl delete validatingwebhookconfiguration longhorn-webhook-validator --ignore-not-found
+      kubectl delete mutatingwebhookconfiguration   longhorn-webhook-mutator   --ignore-not-found
+
+      kubectl delete -f infrastructure/longhorn/ingress.yaml      --ignore-not-found
       kubectl delete -f infrastructure/longhorn/helm-release.yaml --ignore-not-found
+
+      if kubectl get namespace longhorn-system &>/dev/null 2>&1; then
+        info "Waiting for longhorn-system namespace to terminate..."
+        local deadline=$(( $(date +%s) + 180 ))
+        while kubectl get namespace longhorn-system &>/dev/null 2>&1; do
+          if [[ $(date +%s) -ge $deadline ]]; then
+            warn "Namespace still terminating — force-finalizing..."
+            kubectl get namespace longhorn-system -o json \
+              | python3 -c "import sys,json; d=json.load(sys.stdin); d['spec']['finalizers']=[]; print(json.dumps(d))" \
+              | kubectl replace --raw /api/v1/namespaces/longhorn-system/finalize -f - \
+              &>/dev/null
+            break
+          fi
+          sleep 5; info "  Still waiting..."
+        done
+      fi
+
       kubectl delete -f infrastructure/longhorn/namespace.yaml --ignore-not-found
+
+      local longhorn_crds
+      longhorn_crds="$(kubectl get crd -o name 2>/dev/null | grep '\.longhorn\.io' || true)"
+      if [[ -n "$longhorn_crds" ]]; then
+        info "Removing orphaned Longhorn CRDs..."
+        echo "$longhorn_crds" | xargs kubectl delete --ignore-not-found
+      fi
+
       success "Longhorn deleted."
       ;;
     *) error "Unknown component: '$component'"; exit 1 ;;
@@ -691,6 +725,68 @@ cmd_cluster() {
 }
 
 # ---------------------------------------------------------------------------
+# cli — Go binary build/test
+# ---------------------------------------------------------------------------
+
+cmd_cli() {
+  local command="${1:-}"; shift || true
+  case "$command" in
+    build)   cli_build   "$@" ;;
+    test)    cli_test       ;;
+    lint)    cli_lint       ;;
+    install) cli_install "$@" ;;
+    "") usage; exit 1 ;;
+    *) error "Unknown cli command: '$command'"; exit 1 ;;
+  esac
+}
+
+cli_build() {
+  local all=false
+  [[ "${1:-}" == "--all" ]] && all=true
+
+  header "Building rpicli"
+  mkdir -p "$CLI_DIR/dist"
+
+  if $all; then
+    for target in "linux/amd64" "linux/arm64"; do
+      local goos="${target%/*}" goarch="${target#*/}"
+      info "Building $goos/$goarch..."
+      GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
+        go build -ldflags="-s -w" \
+          -o "$CLI_DIR/dist/rpicli-${goos}-${goarch}" . 2>&1
+      success "  dist/rpicli-${goos}-${goarch}"
+    done
+  else
+    local goos goarch
+    goos="$(go env GOOS)"
+    goarch="$(go env GOARCH)"
+    info "Building $goos/$goarch..."
+    CGO_ENABLED=0 go build -ldflags="-s -w" \
+      -o "$CLI_DIR/dist/rpicli" . 2>&1
+    success "  dist/rpicli"
+  fi
+}
+
+cli_test() {
+  header "Testing rpicli"
+  go test -v -race -coverprofile="$CLI_DIR/coverage.out" ./... 2>&1
+  go tool cover -func="$CLI_DIR/coverage.out"
+}
+
+cli_lint() {
+  header "Linting rpicli"
+  go vet ./... && success "go vet passed."
+}
+
+cli_install() {
+  local dest="${1:-/usr/local/bin/rpicli}"
+  header "Installing rpicli → $dest"
+  cli_build
+  install -m 0755 "$CLI_DIR/dist/rpicli" "$dest"
+  success "Installed to $dest"
+}
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
@@ -699,9 +795,10 @@ main() {
 
   local module="$1"; shift
   case "$module" in
-    setup)   cmd_setup   "$@" ;;
+    setup)    cmd_setup    "$@" ;;
     platform) cmd_platform "$@" ;;
-    cluster) cmd_cluster "$@" ;;
+    cluster)  cmd_cluster  "$@" ;;
+    cli)      cd "$CLI_DIR" && cmd_cli "$@" ;;
     -h|--help) usage; exit 0 ;;
     *) error "Unknown module: '$module'"; usage; exit 1 ;;
   esac

@@ -1,0 +1,83 @@
+---
+name: "Cluster CLI"
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "cluster-cli/**"
+      - ".github/workflows/cluster-cli.yml"
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - "cluster-cli/**"
+      - ".github/workflows/cluster-cli.yml"
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+          cache-dependency-path: cluster-cli/go.sum
+
+      - name: Download modules
+        run: go mod download
+        working-directory: cluster-cli
+
+      - name: Vet
+        run: go vet ./...
+        working-directory: cluster-cli
+
+      - name: Test
+        run: go test -v -race -coverprofile=coverage.out ./...
+        working-directory: cluster-cli
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out
+        working-directory: cluster-cli
+
+  build:
+    name: Build (${{ matrix.GOOS }}/${{ matrix.GOARCH }})
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - GOOS: linux
+            GOARCH: amd64
+          - GOOS: linux
+            GOARCH: arm64
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+          cache-dependency-path: cluster-cli/go.sum
+
+      - name: Build
+        run: |
+          mkdir -p dist
+          go build -ldflags="-s -w" -o dist/rpicli-${{ matrix.GOOS }}-${{ matrix.GOARCH }} .
+        working-directory: cluster-cli
+        env:
+          GOOS: ${{ matrix.GOOS }}
+          GOARCH: ${{ matrix.GOARCH }}
+          CGO_ENABLED: "0"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpicli-${{ matrix.GOOS }}-${{ matrix.GOARCH }}
+          path: cluster-cli/dist/rpicli-${{ matrix.GOOS }}-${{ matrix.GOARCH }}
+          retention-days: 7
