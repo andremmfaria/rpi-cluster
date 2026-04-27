@@ -6,7 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/apenella/go-ansible/v2 v2.4.1
 	github.com/fatih/color v1.18.0
-	github.com/spf13/cobra v1.10.1
+	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	k8s.io/api v0.33.3
 	k8s.io/apimachinery v0.33.3
