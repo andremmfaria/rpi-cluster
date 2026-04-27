@@ -51,8 +51,15 @@ ${BOLD}platform commands:${RESET}
   apply <comp>  Apply component (kube-vip | metallb | ingress-nginx | longhorn | all)
   diff  <comp>  Dry-run diff against live cluster
   delete <comp> Remove a component — requires confirmation
-  status        Show pod/service status across all platform namespaces
+  restart <comp>  Rollout restart a component's pods
+  logs <comp|pod> Stream logs  [-n ns] [--tail N] [-f] [-c container]
+  describe <type> [<name>] [-n ns]  Describe a resource
+  exec <comp|pod> [-n ns] [-- cmd]  Exec into a pod (default: sh)
+  events  [-n ns | -A]  Show warning events across namespaces
+  status [comp]  Show pod/service status (kube-vip | metallb | ingress-nginx | longhorn | all)
   lint          Run yamllint on cluster-platform manifests
+
+  Known components: kube-vip | metallb | ingress-nginx | longhorn
 
 ${BOLD}cluster commands:${RESET}
   shutdown      Gracefully drain and power off all nodes
@@ -68,6 +75,15 @@ ${BOLD}Examples:${RESET}
   $(basename "$0") platform apply all
   $(basename "$0") platform apply longhorn
   $(basename "$0") platform diff kube-vip
+  $(basename "$0") platform logs longhorn --tail 50 -f
+  $(basename "$0") platform logs ingress-nginx
+  $(basename "$0") platform logs my-pod -n default
+  $(basename "$0") platform describe pod longhorn-manager-abc -n longhorn-system
+  $(basename "$0") platform exec longhorn -- sh
+  $(basename "$0") platform exec my-pod -n default -- bash
+  $(basename "$0") platform restart ingress-nginx
+  $(basename "$0") platform events
+  $(basename "$0") platform events -n longhorn-system
   $(basename "$0") platform status
   $(basename "$0") cluster shutdown
 
@@ -337,24 +353,195 @@ delete_component() {
 }
 
 platform_status() {
+  local component="${1:-all}"
   check_kubectl
-  header "Platform status"
-  echo; info "kube-vip (kube-system)"
-  kubectl get pods -n kube-system -l app=kube-vip 2>/dev/null || echo "  not found"
-  echo; info "MetalLB (metallb-system)"
-  kubectl get pods -n metallb-system 2>/dev/null || echo "  not found"
-  echo; info "ingress-nginx"
-  kubectl get pods,svc -n ingress-nginx 2>/dev/null || echo "  not found"
-  echo; info "Longhorn (longhorn-system)"
-  kubectl get pods -n longhorn-system 2>/dev/null || echo "  not found"
-  echo; info "Longhorn StorageClass"
-  kubectl get storageclass longhorn 2>/dev/null || echo "  not found"
+
+  status_kube_vip() {
+    info "kube-vip (kube-system)"
+    kubectl get pods -n kube-system -l app=kube-vip 2>/dev/null || echo "  not found"
+  }
+  status_metallb() {
+    info "MetalLB (metallb-system)"
+    kubectl get pods -n metallb-system 2>/dev/null || echo "  not found"
+  }
+  status_ingress_nginx() {
+    info "ingress-nginx"
+    kubectl get pods,svc -n ingress-nginx 2>/dev/null || echo "  not found"
+  }
+  status_longhorn() {
+    info "Longhorn (longhorn-system)"
+    kubectl get pods -n longhorn-system 2>/dev/null || echo "  not found"
+    echo; info "Longhorn StorageClass"
+    kubectl get storageclass longhorn 2>/dev/null || echo "  not found"
+  }
+
+  case "$component" in
+    kube-vip)      header "Status — kube-vip";      echo; status_kube_vip ;;
+    metallb)       header "Status — MetalLB";       echo; status_metallb ;;
+    ingress-nginx) header "Status — ingress-nginx"; echo; status_ingress_nginx ;;
+    longhorn)      header "Status — Longhorn";      echo; status_longhorn ;;
+    all)
+      header "Platform status"
+      echo; status_kube_vip
+      echo; status_metallb
+      echo; status_ingress_nginx
+      echo; status_longhorn
+      ;;
+    *) error "Unknown component: '$component'"; error "Valid: kube-vip | metallb | ingress-nginx | longhorn | all"; exit 1 ;;
+  esac
 }
 
 platform_lint() {
   header "Linting cluster-platform manifests"
   command -v yamllint &>/dev/null || { error "yamllint not found. Run: pip install yamllint"; exit 1; }
   yamllint . && success "yamllint passed." || { error "yamllint failed."; exit 1; }
+}
+
+resolve_component() {
+  local component="$1"
+  case "$component" in
+    kube-vip)      echo "kube-system app=kube-vip" ;;
+    metallb)       echo "metallb-system app in (controller,speaker)" ;;
+    ingress-nginx) echo "ingress-nginx app.kubernetes.io/name=ingress-nginx" ;;
+    longhorn)      echo "longhorn-system app=longhorn-manager" ;;
+    *)             echo "" ;;
+  esac
+}
+
+platform_logs() {
+  local target="" namespace="" tail="100" follow="" container=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -n|--namespace)  namespace="$2";  shift 2 ;;
+      --tail)          tail="$2";       shift 2 ;;
+      -f|--follow)     follow="--follow"; shift ;;
+      -c|--container)  container="-c $2"; shift 2 ;;
+      -*) error "Unknown option: '$1'"; exit 1 ;;
+      *)  target="$1"; shift ;;
+    esac
+  done
+
+  [[ -z "$target" ]] && { error "logs requires a component or pod name."; exit 1; }
+
+  local resolved
+  resolved="$(resolve_component "$target")"
+
+  if [[ -n "$resolved" ]]; then
+    local ns selector
+    ns="$(echo "$resolved" | cut -d' ' -f1)"
+    selector="$(echo "$resolved" | cut -d' ' -f2-)"
+    header "Logs — $target ($ns)"
+    kubectl logs -n "$ns" -l "$selector" --all-containers --tail="$tail" \
+      --prefix $follow ${container:-} --max-log-requests=20
+  else
+    [[ -z "$namespace" ]] && { error "-n/--namespace required for pod '$target'"; exit 1; }
+    header "Logs — $target ($namespace)"
+    kubectl logs -n "$namespace" "$target" --tail="$tail" $follow ${container:-}
+  fi
+}
+
+platform_describe() {
+  local resource="" name="" namespace=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -n|--namespace) namespace="$2"; shift 2 ;;
+      -*) error "Unknown option: '$1'"; exit 1 ;;
+      *)
+        [[ -z "$resource" ]] && { resource="$1"; shift; } || { name="$1"; shift; }
+        ;;
+    esac
+  done
+
+  [[ -z "$resource" ]] && { error "describe requires a resource type."; exit 1; }
+
+  local ns_flag=""
+  [[ -n "$namespace" ]] && ns_flag="-n $namespace"
+
+  if [[ -n "$name" ]]; then
+    kubectl describe $ns_flag "$resource" "$name"
+  else
+    kubectl describe $ns_flag "$resource"
+  fi
+}
+
+platform_exec() {
+  local target="" namespace="" cmd=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -n|--namespace) namespace="$2"; shift 2 ;;
+      --) shift; cmd=("$@"); break ;;
+      -*) error "Unknown option: '$1'"; exit 1 ;;
+      *)  target="$1"; shift ;;
+    esac
+  done
+
+  [[ -z "$target" ]] && { error "exec requires a component or pod name."; exit 1; }
+  [[ ${#cmd[@]} -eq 0 ]] && cmd=("sh")
+
+  local resolved
+  resolved="$(resolve_component "$target")"
+
+  if [[ -n "$resolved" ]]; then
+    local ns selector pod
+    ns="$(echo "$resolved" | cut -d' ' -f1)"
+    selector="$(echo "$resolved" | cut -d' ' -f2-)"
+    pod="$(kubectl get pods -n "$ns" -l "$selector" --no-headers -o custom-columns=':metadata.name' 2>/dev/null | head -1)"
+    [[ -z "$pod" ]] && { error "No pods found for $target in $ns"; exit 1; }
+    info "Execing into $pod ($ns)"
+    kubectl exec -n "$ns" -it "$pod" -- "${cmd[@]}"
+  else
+    [[ -z "$namespace" ]] && { error "-n/--namespace required for pod '$target'"; exit 1; }
+    kubectl exec -n "$namespace" -it "$target" -- "${cmd[@]}"
+  fi
+}
+
+platform_restart() {
+  local target="${1:-}"
+  [[ -z "$target" ]] && { error "restart requires a component name."; exit 1; }
+  check_kubectl
+  case "$target" in
+    kube-vip)
+      kubectl rollout restart daemonset/kube-vip -n kube-system
+      kubectl rollout status  daemonset/kube-vip -n kube-system
+      ;;
+    metallb)
+      kubectl rollout restart deployment/controller  -n metallb-system
+      kubectl rollout restart daemonset/speaker      -n metallb-system
+      kubectl rollout status  deployment/controller  -n metallb-system
+      ;;
+    ingress-nginx)
+      kubectl rollout restart deployment/ingress-nginx-controller -n ingress-nginx
+      kubectl rollout status  deployment/ingress-nginx-controller -n ingress-nginx
+      ;;
+    longhorn)
+      kubectl rollout restart daemonset/longhorn-manager    -n longhorn-system
+      kubectl rollout restart daemonset/longhorn-csi-plugin -n longhorn-system
+      kubectl rollout status  daemonset/longhorn-manager    -n longhorn-system
+      ;;
+    *) error "Unknown component: '$target'"; error "Valid: kube-vip | metallb | ingress-nginx | longhorn"; exit 1 ;;
+  esac
+  success "$target restarted."
+}
+
+platform_events() {
+  local namespace="" all_ns=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -n|--namespace)    namespace="$2"; shift 2 ;;
+      -A|--all-namespaces) all_ns="--all-namespaces"; shift ;;
+      *) error "Unknown option: '$1'"; exit 1 ;;
+    esac
+  done
+
+  local ns_flag=""
+  [[ -n "$all_ns" ]]    && ns_flag="$all_ns"
+  [[ -n "$namespace" ]] && ns_flag="-n $namespace"
+  [[ -z "$ns_flag" ]]   && ns_flag="--all-namespaces"
+
+  kubectl get events $ns_flag \
+    --sort-by='.lastTimestamp' \
+    --field-selector='type!=Normal' 2>/dev/null \
+    || kubectl get events $ns_flag --sort-by='.lastTimestamp'
 }
 
 cmd_platform() {
@@ -378,7 +565,12 @@ cmd_platform() {
       [[ $# -eq 0 ]] && { error "delete requires a component."; exit 1; }
       header "Delete — ${1}"; delete_component "$1"
       ;;
-    status) platform_status ;;
+    logs)     check_kubectl; platform_logs    "$@" ;;
+    describe) check_kubectl; platform_describe "$@" ;;
+    exec)     check_kubectl; platform_exec    "$@" ;;
+    restart)  check_kubectl; platform_restart "$@" ;;
+    events)   check_kubectl; platform_events  "$@" ;;
+    status) platform_status "${1:-all}" ;;
     lint)   platform_lint   ;;
     "") usage; exit 1 ;;
     *) error "Unknown platform command: '$command'"; exit 1 ;;
@@ -402,21 +594,28 @@ INIT_SERVER_IP="192.168.50.20"
 
 drain_node() {
   local node="$1"
-  info "Draining $node..."
+  info "  Draining $node — evicting all pods gracefully..."
   kubectl drain "$node" \
     --ignore-daemonsets \
     --delete-emptydir-data \
     --force \
     --timeout=120s \
     --grace-period=30 2>&1 | grep -v "^Warning"
-  success "$node drained."
+  success "  $node drained."
 }
 
 ssh_shutdown() {
   local label="$1" ip="$2"
   ssh $SSH_OPTS "${SSH_USER}@${ip}" "sudo shutdown -h now" 2>/dev/null && \
-    info "  Shutdown sent to $label ($ip)" || \
-    warn "  Could not reach $label ($ip) — may already be offline"
+    info "  $label ($ip) — shutdown command sent" || \
+    warn "  $label ($ip) — unreachable (may already be offline)"
+}
+
+uncordon_all() {
+  warn "Uncordoning all nodes — restoring schedulability..."
+  for node in "${AGENTS[@]}" "${JOINING_SERVERS[@]}" "$INIT_SERVER"; do
+    kubectl uncordon "$node" 2>/dev/null && info "  Uncordoned $node" || true
+  done
 }
 
 cluster_shutdown() {
@@ -432,24 +631,41 @@ cluster_shutdown() {
   read -r -p "  Type 'shutdown' to confirm: " answer; echo
   [[ "$answer" == "shutdown" ]] || { info "Aborted."; exit 0; }
 
-  header "Cordoning all nodes"
+  trap 'echo; warn "Interrupted — uncordoning all nodes to leave cluster healthy."; uncordon_all; exit 1' INT TERM EXIT
+
+  header "Step 1/4 — Cordon all nodes"
+  info "Cordoning prevents the scheduler from placing new pods on any node"
+  info "while we drain. Existing pods keep running until explicitly evicted."
+  echo
   for node in "${AGENTS[@]}" "${JOINING_SERVERS[@]}" "$INIT_SERVER"; do
     kubectl cordon "$node" && info "  Cordoned $node"
   done
 
-  header "Draining agents (parallel)"
+  header "Step 2/4 — Drain agents (parallel)"
+  info "Draining evicts all non-daemonset pods from the workers."
+  info "Pods with persistent volumes (e.g. Longhorn) are gracefully unmounted first."
+  echo
   local pids=()
   for node in "${AGENTS[@]}"; do drain_node "$node" & pids+=($!); done
   for pid in "${pids[@]}"; do wait "$pid"; done
   success "All agents drained."
 
-  header "Draining joining servers (serial — etcd quorum)"
+  header "Step 3/4 — Drain control-plane nodes (serial — etcd quorum)"
+  info "Servers are drained one at a time to keep etcd quorum (2/3) as long"
+  info "as possible. rpi-0 (init server / likely etcd leader) goes last."
+  echo
   for node in "${JOINING_SERVERS[@]}"; do drain_node "$node"; done
-
-  header "Draining init server (rpi-0)"
   drain_node "$INIT_SERVER"
 
-  header "Shutting down nodes"
+  header "Step 4/4 — Power off nodes"
+  info "Uncordoning before shutdown so nodes come back schedulable if they"
+  info "reboot instead of halting, or if shutdown fails on any node."
+  echo
+  uncordon_all
+  echo
+
+  trap - INT TERM EXIT
+
   info "Agents (simultaneous)..."
   for i in "${!AGENTS[@]}"; do ssh_shutdown "${AGENTS[$i]}" "${AGENT_IPS[$i]}" & done
   wait; sleep 5
@@ -458,7 +674,7 @@ cluster_shutdown() {
   for i in "${!JOINING_SERVERS[@]}"; do ssh_shutdown "${JOINING_SERVERS[$i]}" "${JOINING_SERVER_IPS[$i]}" & done
   wait; sleep 5
 
-  info "Init server (rpi-0)..."
+  info "Init server (rpi-0 — last)..."
   ssh_shutdown "$INIT_SERVER" "$INIT_SERVER_IP"
 
   echo
