@@ -35,11 +35,12 @@ func TestGetUnknownComponent(t *testing.T) {
 
 func TestAllReturnsCorrectOrder(t *testing.T) {
 	all := All()
-	require.Len(t, all, 4)
+	require.Len(t, all, 5)
 	assert.Equal(t, "kube-vip", all[0].Name)
 	assert.Equal(t, "metallb", all[1].Name)
 	assert.Equal(t, "ingress-nginx", all[2].Name)
 	assert.Equal(t, "longhorn", all[3].Name)
+	assert.Equal(t, "cert-manager", all[4].Name)
 }
 
 func TestMetalLBHasTwoWorkloads(t *testing.T) {

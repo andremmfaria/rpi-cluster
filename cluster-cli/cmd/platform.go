@@ -141,8 +141,30 @@ func applyComponent(comp string) error {
 			return err
 		}
 		return kubectl("apply", "-f", infraDir+"/infrastructure/longhorn/ingress.yaml")
+	case "cert-manager":
+		_ = kubectl("apply", "-f", infraDir+"/infrastructure/cert-manager/namespace.yaml")
+		if err := kubectl("apply", "-f", infraDir+"/infrastructure/cert-manager/helm-release.yaml"); err != nil {
+			return err
+		}
+		printer.Info("Waiting for cert-manager CRDs...")
+		if err := waitForCRDs(
+			"certificates.cert-manager.io",
+			"clusterissuers.cert-manager.io",
+			"issuers.cert-manager.io",
+		); err != nil {
+			return err
+		}
+		printer.Info("Waiting for cert-manager webhook to be ready...")
+		if err := kubectl("wait", "--for=condition=Available",
+			"deployment/cert-manager-webhook", "-n", "cert-manager", "--timeout=120s"); err != nil {
+			return err
+		}
+		printer.Info("Applying ClusterIssuers...")
+		_ = kubectl("apply", "-f", infraDir+"/infrastructure/cert-manager/clusterissuer-selfsigned.yaml")
+		_ = kubectl("apply", "-f", infraDir+"/infrastructure/cert-manager/clusterissuer-letsencrypt-staging.yaml")
+		return kubectl("apply", "-f", infraDir+"/infrastructure/cert-manager/clusterissuer-letsencrypt-prod.yaml")
 	case "all":
-		for _, c := range []string{"kube-vip", "metallb", "ingress-nginx", "longhorn"} {
+		for _, c := range []string{"kube-vip", "metallb", "ingress-nginx", "longhorn", "cert-manager"} {
 			printer.Header("Applying " + c)
 			if err := applyComponent(c); err != nil {
 				return err
@@ -189,8 +211,15 @@ func diffComponent(comp string) error {
 		_ = kubectl("diff", "-f", infraDir+"/infrastructure/longhorn/helm-release.yaml")
 		_ = kubectl("diff", "-f", infraDir+"/infrastructure/longhorn/ingress.yaml")
 		return nil
+	case "cert-manager":
+		_ = kubectl("diff", "-f", infraDir+"/infrastructure/cert-manager/namespace.yaml")
+		_ = kubectl("diff", "-f", infraDir+"/infrastructure/cert-manager/helm-release.yaml")
+		_ = kubectl("diff", "-f", infraDir+"/infrastructure/cert-manager/clusterissuer-selfsigned.yaml")
+		_ = kubectl("diff", "-f", infraDir+"/infrastructure/cert-manager/clusterissuer-letsencrypt-staging.yaml")
+		_ = kubectl("diff", "-f", infraDir+"/infrastructure/cert-manager/clusterissuer-letsencrypt-prod.yaml")
+		return nil
 	case "all":
-		for _, c := range []string{"kube-vip", "metallb", "ingress-nginx", "longhorn"} {
+		for _, c := range []string{"kube-vip", "metallb", "ingress-nginx", "longhorn", "cert-manager"} {
 			_ = diffComponent(c)
 		}
 		return nil
@@ -240,8 +269,18 @@ func deleteComponent(comp string) error {
 		printer.Success("Longhorn deleted.")
 		return nil
 
+	case "cert-manager":
+		_ = kubectl("delete", "-f", infraDir+"/infrastructure/cert-manager/clusterissuer-letsencrypt-prod.yaml", "--ignore-not-found")
+		_ = kubectl("delete", "-f", infraDir+"/infrastructure/cert-manager/clusterissuer-letsencrypt-staging.yaml", "--ignore-not-found")
+		_ = kubectl("delete", "-f", infraDir+"/infrastructure/cert-manager/clusterissuer-selfsigned.yaml", "--ignore-not-found")
+		_ = kubectl("delete", "-f", infraDir+"/infrastructure/cert-manager/helm-release.yaml", "--ignore-not-found")
+		_ = waitNamespaceTermination("cert-manager", 120*time.Second)
+		_ = kubectl("delete", "-f", infraDir+"/infrastructure/cert-manager/namespace.yaml", "--ignore-not-found")
+		printer.Success("cert-manager deleted.")
+		return nil
+
 	default:
-		return fmt.Errorf("unknown component %q — valid: kube-vip, metallb, ingress-nginx, longhorn", comp)
+		return fmt.Errorf("unknown component %q — valid: kube-vip, metallb, ingress-nginx, longhorn, cert-manager", comp)
 	}
 }
 

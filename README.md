@@ -32,6 +32,7 @@ GitOps-managed Kubernetes platform layer — applied with `scripts/run.sh platfo
 - MetalLB — LoadBalancer IPs on LAN (`192.168.50.40–60`)
 - ingress-nginx — HTTP/S routing (`192.168.50.40`)
 - Longhorn — replicated block storage on NVMe (`longhorn.kantharos.srv`)
+- cert-manager — automatic TLS via self-signed and Let's Encrypt DNS-01
 
 See [`cluster-platform/README.md`](./cluster-platform/README.md) for full documentation.
 

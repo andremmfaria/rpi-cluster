@@ -47,6 +47,16 @@ var registry = map[string]Component{
 			{Kind: "daemonset", Name: "longhorn-csi-plugin"},
 		},
 	},
+	"cert-manager": {
+		Name:      "cert-manager",
+		Namespace: "cert-manager",
+		Selector:  "app.kubernetes.io/instance=cert-manager",
+		Workloads: []Workload{
+			{Kind: "deployment", Name: "cert-manager"},
+			{Kind: "deployment", Name: "cert-manager-cainjector"},
+			{Kind: "deployment", Name: "cert-manager-webhook"},
+		},
+	},
 }
 
 func Get(name string) (Component, error) {
@@ -58,7 +68,7 @@ func Get(name string) (Component, error) {
 }
 
 func All() []Component {
-	order := []string{"kube-vip", "metallb", "ingress-nginx", "longhorn"}
+	order := []string{"kube-vip", "metallb", "ingress-nginx", "longhorn", "cert-manager"}
 	out := make([]Component, 0, len(order))
 	for _, name := range order {
 		out = append(out, registry[name])

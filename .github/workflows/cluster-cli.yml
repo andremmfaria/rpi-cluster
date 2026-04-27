@@ -67,17 +67,9 @@ jobs:
           cache-dependency-path: cluster-cli/go.sum
 
       - name: Build
-        run: |
-          mkdir -p ../../bin
-          go build -ldflags="-s -w" -o ../../bin/rpicli-${{ matrix.GOOS }}-${{ matrix.GOARCH }} .
+        run: go build -ldflags="-s -w" -o /dev/null .
         working-directory: cluster-cli
         env:
           GOOS: ${{ matrix.GOOS }}
           GOARCH: ${{ matrix.GOARCH }}
           CGO_ENABLED: "0"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: rpicli-${{ matrix.GOOS }}-${{ matrix.GOARCH }}
-          path: bin/rpicli-${{ matrix.GOOS }}-${{ matrix.GOARCH }}
-          retention-days: 7

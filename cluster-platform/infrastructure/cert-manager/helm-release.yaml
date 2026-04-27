@@ -1,0 +1,22 @@
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: cert-manager
+  namespace: kube-system
+spec:
+  repo: https://charts.jetstack.io
+  chart: cert-manager
+  version: v1.20.2
+  targetNamespace: cert-manager
+  createNamespace: true
+  valuesContent: |
+    crds:
+      enabled: true
+
+    prometheus:
+      enabled: true
+
+    extraArgs:
+      - --dns01-recursive-nameservers=1.1.1.1:53,8.8.8.8:53
+      - --dns01-recursive-nameservers-only

@@ -37,6 +37,7 @@ ${BOLD}Commands:${RESET}
   list             List all available workflows and jobs
   lint setup       Run cluster-setup lint   (yamllint + ansible-lint + syntax-check)
   lint platform    Run cluster-platform lint (manifests yamllint)
+  lint cli         Run cluster-cli lint     (vet + test + compile check)
   lint all         Run all lint workflows
   all              Run all workflows
   run <name>       Run a specific workflow by filename (without .yml extension)
@@ -55,6 +56,7 @@ ${BOLD}Examples:${RESET}
   $(basename "$0") list
   $(basename "$0") lint setup
   $(basename "$0") lint platform
+  $(basename "$0") lint cli
   $(basename "$0") lint all
   $(basename "$0") all
   $(basename "$0") run cluster-setup-lint
@@ -146,14 +148,20 @@ cmd_lint() {
       header "Running cluster-platform lint"
       run_act push ".github/workflows/cluster-platform-lint.yml"
       ;;
+    cli)
+      header "Running cluster-cli lint"
+      run_act push ".github/workflows/cluster-cli.yml"
+      ;;
     all)
       header "Running all lint workflows"
       run_act push ".github/workflows/cluster-setup-lint.yml"
       echo
       run_act push ".github/workflows/cluster-platform-lint.yml"
+      echo
+      run_act push ".github/workflows/cluster-cli.yml"
       ;;
     *)
-      error "lint requires: setup | platform | all"
+      error "lint requires: setup | platform | cli | all"
       usage; exit 1
       ;;
   esac
