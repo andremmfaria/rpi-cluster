@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"rpicli/internal/config"
 	"rpicli/internal/kube"
 	"rpicli/internal/printer"
 
@@ -22,24 +23,12 @@ func init() {
 	clusterCmd.AddCommand(clusterShutdownCmd)
 }
 
-var (
-	sshUser = "rpi"
-	sshKey  = ""
-
-	agents         = []string{"rpi-3", "rpi-4", "rpi-5"}
-	agentIPs       = []string{"192.168.50.23", "192.168.50.24", "192.168.50.25"}
-	joiningServers = []string{"rpi-2", "rpi-1"}
-	joiningIPs     = []string{"192.168.50.22", "192.168.50.21"}
-	initServer     = "rpi-0"
-	initIP         = "192.168.50.20"
-)
-
 var clusterShutdownCmd = &cobra.Command{
 	Use:   "shutdown",
 	Short: "Gracefully drain and power off all nodes",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		sshUser, _ = cmd.Flags().GetString("ssh-user")
-		sshKey, _ = cmd.Flags().GetString("ssh-key")
+		sshUser := cfg.SSH.User
+		sshKey := cfg.SSH.Key
 
 		client, err := newKubeClient()
 		if err != nil {
@@ -53,7 +42,7 @@ var clusterShutdownCmd = &cobra.Command{
 		}
 		fmt.Println()
 
-		printer.Warn("This will GRACEFULLY SHUT DOWN all 6 Raspberry Pi nodes.")
+		printer.Warn("This will GRACEFULLY SHUT DOWN all cluster nodes.")
 		printer.Warn("All workloads will be evicted. The cluster will be offline.")
 		fmt.Println()
 		if !printer.Confirm("Type 'shutdown' to confirm") {
@@ -61,7 +50,18 @@ var clusterShutdownCmd = &cobra.Command{
 			return nil
 		}
 
-		allNodes := append(append(agents, joiningServers...), initServer)
+		agents := cfg.Nodes.Agents
+		joining := cfg.JoiningServers()
+		init := cfg.InitServer()
+
+		allNodes := make([]string, 0, len(agents)+len(joining)+1)
+		for _, n := range agents {
+			allNodes = append(allNodes, n.Name)
+		}
+		for _, n := range joining {
+			allNodes = append(allNodes, n.Name)
+		}
+		allNodes = append(allNodes, init.Name)
 
 		printer.Header("Step 1/4 — Cordon all nodes")
 		printer.Info("Cordoning prevents the scheduler from placing new pods on any node")
@@ -90,13 +90,13 @@ var clusterShutdownCmd = &cobra.Command{
 		var wg sync.WaitGroup
 		for _, node := range agents {
 			wg.Add(1)
-			go func(n string) {
+			go func(n config.Node) {
 				defer wg.Done()
-				printer.Info("  Draining " + n + "...")
-				if err := kube.DrainNode(ctx, client, n); err != nil {
-					printer.Warn("  " + n + " drain error: " + err.Error())
+				printer.Info("  Draining " + n.Name + "...")
+				if err := kube.DrainNode(ctx, client, n.Name); err != nil {
+					printer.Warn("  " + n.Name + " drain error: " + err.Error())
 				} else {
-					printer.Success("  " + n + " drained.")
+					printer.Success("  " + n.Name + " drained.")
 				}
 			}(node)
 		}
@@ -104,15 +104,21 @@ var clusterShutdownCmd = &cobra.Command{
 
 		printer.Header("Step 3/4 — Drain control-plane nodes (serial — etcd quorum)")
 		printer.Info("Servers are drained one at a time to maintain etcd quorum (2/3).")
-		printer.Info("rpi-0 (init server / likely etcd leader) goes last.")
+		printer.Info(fmt.Sprintf("%s (init server / likely etcd leader) goes last.", init.Name))
 		fmt.Println()
-		for _, node := range append(joiningServers, initServer) {
-			printer.Info("  Draining " + node + "...")
-			if err := kube.DrainNode(ctx, client, node); err != nil {
-				printer.Warn("  " + node + " drain error: " + err.Error())
+		for _, n := range joining {
+			printer.Info("  Draining " + n.Name + "...")
+			if err := kube.DrainNode(ctx, client, n.Name); err != nil {
+				printer.Warn("  " + n.Name + " drain error: " + err.Error())
 			} else {
-				printer.Success("  " + node + " drained.")
+				printer.Success("  " + n.Name + " drained.")
 			}
+		}
+		printer.Info("  Draining " + init.Name + "...")
+		if err := kube.DrainNode(ctx, client, init.Name); err != nil {
+			printer.Warn("  " + init.Name + " drain error: " + err.Error())
+		} else {
+			printer.Success("  " + init.Name + " drained.")
 		}
 
 		printer.Header("Step 4/4 — Power off nodes")
@@ -122,61 +128,44 @@ var clusterShutdownCmd = &cobra.Command{
 		uncordonAll()
 		fmt.Println()
 
-		sshShutdown := func(label, ip string) {
+		sshShutdown := func(n config.Node) {
 			c := exec.Command("ssh",
 				"-i", sshKey,
 				"-o", "StrictHostKeyChecking=no",
 				"-o", "ConnectTimeout=10",
-				sshUser+"@"+ip,
+				sshUser+"@"+n.IP,
 				"sudo shutdown -h now",
 			)
 			if err := c.Run(); err != nil {
-				printer.Warn("  " + label + " (" + ip + ") — unreachable")
+				printer.Warn("  " + n.Name + " (" + n.IP + ") — unreachable")
 			} else {
-				printer.Info("  " + label + " (" + ip + ") — shutdown sent")
+				printer.Info("  " + n.Name + " (" + n.IP + ") — shutdown sent")
 			}
 		}
 
 		printer.Info("Agents (simultaneous)...")
 		var wg2 sync.WaitGroup
-		for i, node := range agents {
+		for _, n := range agents {
 			wg2.Add(1)
-			go func(n, ip string) { defer wg2.Done(); sshShutdown(n, ip) }(node, agentIPs[i])
+			go func(node config.Node) { defer wg2.Done(); sshShutdown(node) }(n)
 		}
 		wg2.Wait()
 		time.Sleep(5 * time.Second)
 
 		printer.Info("Joining servers (simultaneous)...")
 		var wg3 sync.WaitGroup
-		for i, node := range joiningServers {
+		for _, n := range joining {
 			wg3.Add(1)
-			go func(n, ip string) { defer wg3.Done(); sshShutdown(n, ip) }(node, joiningIPs[i])
+			go func(node config.Node) { defer wg3.Done(); sshShutdown(node) }(n)
 		}
 		wg3.Wait()
 		time.Sleep(5 * time.Second)
 
-		printer.Info("Init server (rpi-0 — last)...")
-		sshShutdown(initServer, initIP)
+		printer.Info(fmt.Sprintf("Init server (%s — last)...", init.Name))
+		sshShutdown(init)
 
 		fmt.Println()
 		printer.Success("All nodes shutting down. Cluster is offline.")
 		return nil
 	},
-}
-
-func init() {
-	home, _ := homeDir()
-	clusterShutdownCmd.Flags().String("ssh-user", "rpi", "SSH user for node access")
-	clusterShutdownCmd.Flags().String("ssh-key", home+"/.ssh/id_rpi", "SSH private key path")
-}
-
-func homeDir() (string, error) {
-	h, err := exec.Command("sh", "-c", "echo $HOME").Output()
-	if err != nil {
-		return "", err
-	}
-	if len(h) > 0 && h[len(h)-1] == '\n' {
-		h = h[:len(h)-1]
-	}
-	return string(h), nil
 }

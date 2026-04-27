@@ -1,0 +1,40 @@
+[cluster]
+name = "rpi-k3s"
+
+[ssh]
+user = "rpi"
+key = "~/.ssh/id_rpi"
+
+[dirs]
+setup   = "./cluster-setup"
+platform = "./cluster-platform"
+
+[setup]
+default_inventory = "homelab"
+
+[[nodes.agents]]
+name = "rpi-3"
+ip   = "192.168.50.23"
+
+[[nodes.agents]]
+name = "rpi-4"
+ip   = "192.168.50.24"
+
+[[nodes.agents]]
+name = "rpi-5"
+ip   = "192.168.50.25"
+
+[[nodes.servers]]
+name = "rpi-2"
+ip   = "192.168.50.22"
+role = "joining"
+
+[[nodes.servers]]
+name = "rpi-1"
+ip   = "192.168.50.21"
+role = "joining"
+
+[[nodes.servers]]
+name = "rpi-0"
+ip   = "192.168.50.20"
+role = "init"

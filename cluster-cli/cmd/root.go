@@ -1,21 +1,35 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
+
+	"rpicli/internal/config"
 
 	"github.com/spf13/cobra"
 )
 
 var (
-	kubeconfig  string
-	setupDir    string
-	platformDir string
+	configPath string
+	cfg        *config.Config
+	kubeconfig string
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "rpicli",
 	Short: "rpi-cluster management CLI",
-	Long:  "Manage a 6-node Raspberry Pi k3s cluster — provisioning, platform, and operations.",
+	Long:  "Manage a Raspberry Pi k3s cluster — provisioning, platform, and operations.",
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		var err error
+		cfg, err = config.Load(configPath)
+		if err != nil {
+			return fmt.Errorf("config: %w", err)
+		}
+		if kubeconfig == "" {
+			kubeconfig = cfg.Kubeconfig()
+		}
+		return nil
+	},
 }
 
 func Execute() {
@@ -26,10 +40,8 @@ func Execute() {
 
 func init() {
 	home, _ := os.UserHomeDir()
-
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Config file path (default: ./rpicli.toml or ~/.config/rpicli/config.toml)")
 	rootCmd.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", home+"/.kube/rpi-cluster.yaml", "Path to kubeconfig file")
-	rootCmd.PersistentFlags().StringVar(&setupDir, "setup-dir", "./cluster-setup", "Path to cluster-setup directory")
-	rootCmd.PersistentFlags().StringVar(&platformDir, "platform-dir", "./cluster-platform", "Path to cluster-platform directory")
 
 	rootCmd.AddCommand(setupCmd)
 	rootCmd.AddCommand(platformCmd)
@@ -40,6 +52,7 @@ func init() {
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version",
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return nil },
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Println("rpicli v0.1.0")
 	},

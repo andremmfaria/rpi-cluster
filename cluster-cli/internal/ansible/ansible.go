@@ -1,82 +1,75 @@
 package ansible
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
+
+	goansible "github.com/apenella/go-ansible/v2/pkg/playbook"
+	"github.com/apenella/go-ansible/v2/pkg/execute"
 )
 
 type Playbook struct {
-	dir       string
-	playbook  string
-	inventory string
-	limit     string
-	tags      string
-	extraVars []string
-	checkMode bool
+	dir     string
+	file    string
+	options *goansible.AnsiblePlaybookOptions
 }
 
-func NewPlaybook(dir, playbook string) *Playbook {
-	return &Playbook{dir: dir, playbook: playbook, inventory: "homelab"}
+func NewPlaybook(dir, file string) *Playbook {
+	return &Playbook{
+		dir:     dir,
+		file:    file,
+		options: &goansible.AnsiblePlaybookOptions{},
+	}
 }
 
 func (p *Playbook) WithInventory(inv string) *Playbook {
 	if inv != "" {
-		p.inventory = inv
+		p.options.Inventory = fmt.Sprintf("inventories/%s/hosts.yml", inv)
 	}
 	return p
 }
 
 func (p *Playbook) WithLimit(limit string) *Playbook {
-	p.limit = limit
+	p.options.Limit = limit
 	return p
 }
 
 func (p *Playbook) WithTags(tags string) *Playbook {
-	p.tags = tags
+	p.options.Tags = tags
+	return p
+}
+
+func (p *Playbook) WithSkipTags(tags string) *Playbook {
+	p.options.SkipTags = tags
 	return p
 }
 
 func (p *Playbook) WithExtraVars(vars []string) *Playbook {
-	p.extraVars = vars
+	for _, v := range vars {
+		p.options.AddExtraVar(v, "")
+	}
 	return p
 }
 
 func (p *Playbook) WithCheckMode() *Playbook {
-	p.checkMode = true
+	p.options.Check = true
+	p.options.Diff = true
 	return p
 }
 
-func (p *Playbook) Args() []string {
-	inventoryPath := fmt.Sprintf("inventories/%s/hosts.yml", p.inventory)
-	args := []string{"-i", inventoryPath, p.playbook}
-
-	if p.checkMode {
-		args = append(args, "--check", "--diff")
-	}
-	if p.limit != "" {
-		args = append(args, "-l", p.limit)
-	}
-	if p.tags != "" {
-		args = append(args, "-t", p.tags)
-	}
-	for _, v := range p.extraVars {
-		args = append(args, "-e", v)
-	}
-	return args
-}
-
-func (p *Playbook) Run() error {
-	args := p.Args()
-	fmt.Println("Running: ansible-playbook " + strings.Join(args, " "))
-	fmt.Println()
-
-	c := exec.Command("ansible-playbook", args...)
-	c.Dir = p.dir
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	return c.Run()
+func (p *Playbook) Run(ctx context.Context) error {
+	exec := execute.NewDefaultExecute(
+		execute.WithCmd(goansible.NewAnsiblePlaybookCmd(
+			goansible.WithPlaybooks(p.file),
+			goansible.WithPlaybookOptions(p.options),
+		)),
+		execute.WithCmdRunDir(p.dir),
+		execute.WithWrite(os.Stdout),
+		execute.WithWriteError(os.Stderr),
+	)
+	return exec.Execute(ctx)
 }
 
 func RunGalaxy(dir string, args ...string) error {

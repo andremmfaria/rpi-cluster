@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+
 	"rpicli/internal/ansible"
 	"rpicli/internal/printer"
 
@@ -26,7 +28,7 @@ var setupDepsCmd = &cobra.Command{
 	Short: "Install required Ansible Galaxy collections",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		printer.Header("Installing Ansible Galaxy collections")
-		return ansible.RunGalaxy(setupDir, "collection", "install", "community.general", "ansible.posix")
+		return ansible.RunGalaxy(cfg.Dirs.Setup, "collection", "install", "community.general", "ansible.posix")
 	},
 }
 
@@ -34,11 +36,11 @@ var setupPingCmd = &cobra.Command{
 	Use:   "ping",
 	Short: "Pre-flight connectivity and hardware check",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		inventory, _ := cmd.Flags().GetString("inventory")
-		printer.Header("Pre-flight validation — inventory: " + inventory)
-		return ansible.NewPlaybook(setupDir, "playbooks/00-ping.yml").
-			WithInventory(inventory).
-			Run()
+		inv := inventoryFlag(cmd)
+		printer.Header("Pre-flight validation — inventory: " + inv)
+		return ansible.NewPlaybook(cfg.Dirs.Setup, "playbooks/00-ping.yml").
+			WithInventory(inv).
+			Run(context.Background())
 	},
 }
 
@@ -46,17 +48,17 @@ var setupDeployCmd = &cobra.Command{
 	Use:   "deploy",
 	Short: "Bootstrap the full cluster (site.yml)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		inventory, _ := cmd.Flags().GetString("inventory")
+		inv := inventoryFlag(cmd)
 		limit, _ := cmd.Flags().GetString("limit")
 		tags, _ := cmd.Flags().GetString("tags")
 		extraVars, _ := cmd.Flags().GetStringArray("extra-var")
-		printer.Header("Deploying cluster — inventory: " + inventory)
-		return ansible.NewPlaybook(setupDir, "site.yml").
-			WithInventory(inventory).
+		printer.Header("Deploying cluster — inventory: " + inv)
+		return ansible.NewPlaybook(cfg.Dirs.Setup, "site.yml").
+			WithInventory(inv).
 			WithLimit(limit).
 			WithTags(tags).
 			WithExtraVars(extraVars).
-			Run()
+			Run(context.Background())
 	},
 }
 
@@ -64,16 +66,16 @@ var setupResetCmd = &cobra.Command{
 	Use:   "reset",
 	Short: "Tear down k3s — DESTRUCTIVE, requires confirmation",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		inventory, _ := cmd.Flags().GetString("inventory")
+		inv := inventoryFlag(cmd)
 		printer.Warn("This will DESTROY the k3s cluster and wipe all node data.")
-		printer.Warn("Target inventory: " + inventory)
+		printer.Warn("Target inventory: " + inv)
 		if !printer.Confirm("Type 'yes' to confirm") {
 			printer.Info("Aborted.")
 			return nil
 		}
-		return ansible.NewPlaybook(setupDir, "playbooks/99-reset.yml").
-			WithInventory(inventory).
-			Run()
+		return ansible.NewPlaybook(cfg.Dirs.Setup, "playbooks/99-reset.yml").
+			WithInventory(inv).
+			Run(context.Background())
 	},
 }
 
@@ -81,12 +83,12 @@ var setupCheckCmd = &cobra.Command{
 	Use:   "check",
 	Short: "Dry-run deploy (--check --diff)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		inventory, _ := cmd.Flags().GetString("inventory")
-		printer.Header("Dry-run (check + diff) — inventory: " + inventory)
-		return ansible.NewPlaybook(setupDir, "site.yml").
-			WithInventory(inventory).
+		inv := inventoryFlag(cmd)
+		printer.Header("Dry-run (check + diff) — inventory: " + inv)
+		return ansible.NewPlaybook(cfg.Dirs.Setup, "site.yml").
+			WithInventory(inv).
 			WithCheckMode().
-			Run()
+			Run(context.Background())
 	},
 }
 
@@ -95,7 +97,7 @@ var setupLintCmd = &cobra.Command{
 	Short: "Run yamllint and ansible-lint",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		printer.Header("Linting cluster-setup")
-		if err := ansible.RunLint(setupDir); err != nil {
+		if err := ansible.RunLint(cfg.Dirs.Setup); err != nil {
 			return err
 		}
 		printer.Success("All linters passed.")
@@ -103,11 +105,19 @@ var setupLintCmd = &cobra.Command{
 	},
 }
 
-func addSetupFlags(cmd *cobra.Command) {
-	cmd.Flags().StringP("inventory", "i", "homelab", "Inventory name under inventories/")
-	cmd.Flags().StringP("limit", "l", "", "Limit to hosts matching pattern")
-	cmd.Flags().StringP("tags", "t", "", "Only run tasks with these tags")
-	cmd.Flags().StringArrayP("extra-var", "e", nil, "Set extra variable (repeatable)")
+func inventoryFlag(cmd *cobra.Command) string {
+	inv, _ := cmd.Flags().GetString("inventory")
+	if inv == "" {
+		return cfg.Setup.DefaultInventory
+	}
+	return inv
+}
+
+func addSetupFlags(c *cobra.Command) {
+	c.Flags().StringP("inventory", "i", "", "Inventory name under inventories/ (default: from config)")
+	c.Flags().StringP("limit", "l", "", "Limit to hosts matching pattern")
+	c.Flags().StringP("tags", "t", "", "Only run tasks with these tags")
+	c.Flags().StringArrayP("extra-var", "e", nil, "Set extra variable (repeatable)")
 }
 
 func init() {

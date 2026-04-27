@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"time"
 
 	"rpicli/internal/component"
 	"rpicli/internal/kube"
@@ -45,8 +46,14 @@ var platformKubeconfigCmd = &cobra.Command{
 		key, _ := cmd.Flags().GetString("key")
 		out, _ := cmd.Flags().GetString("out")
 
-		if server == "" || user == "" || key == "" {
-			return fmt.Errorf("--server, --user, and --key are required")
+		if server == "" {
+			return fmt.Errorf("--server is required")
+		}
+		if user == "" {
+			user = cfg.SSH.User
+		}
+		if key == "" {
+			key = cfg.SSH.Key
 		}
 		if _, err := os.Stat(key); err != nil {
 			return fmt.Errorf("SSH key not found: %s", key)
@@ -57,11 +64,10 @@ var platformKubeconfigCmd = &cobra.Command{
 }
 
 func init() {
-	home, _ := os.UserHomeDir()
 	platformKubeconfigCmd.Flags().String("server", "", "Control-plane node IP (required)")
-	platformKubeconfigCmd.Flags().String("user", "", "SSH user (required)")
-	platformKubeconfigCmd.Flags().String("key", "", "SSH private key path (required)")
-	platformKubeconfigCmd.Flags().String("out", home+"/.kube/rpi-cluster.yaml", "Output path")
+	platformKubeconfigCmd.Flags().String("user", "", "SSH user (default: from config)")
+	platformKubeconfigCmd.Flags().String("key", "", "SSH private key path (default: from config)")
+	platformKubeconfigCmd.Flags().String("out", "", "Output path (default: from config kubeconfig)")
 }
 
 var platformApplyCmd = &cobra.Command{
@@ -69,7 +75,7 @@ var platformApplyCmd = &cobra.Command{
 	Short: "Apply a component (kube-vip|metallb|ingress-nginx|longhorn|all)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return kubectlInDir(platformDir, "apply", args[0])
+		return kubectlManifests(cfg.Dirs.Platform, "apply", args[0])
 	},
 }
 
@@ -78,7 +84,7 @@ var platformDiffCmd = &cobra.Command{
 	Short: "Dry-run diff against live cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return kubectlInDir(platformDir, "diff", args[0])
+		return kubectlManifests(cfg.Dirs.Platform, "diff", args[0])
 	},
 }
 
@@ -87,16 +93,127 @@ var platformDeleteCmd = &cobra.Command{
 	Short: "Remove a component — requires confirmation",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		printer.Warn("This will DELETE " + args[0] + " from the cluster.")
+		comp := args[0]
+		printer.Warn("This will DELETE " + comp + " from the cluster.")
 		if !printer.Confirm("Type 'yes' to confirm") {
 			printer.Info("Aborted.")
 			return nil
 		}
-		return kubectlInDir(platformDir, "delete", args[0])
+		return deleteComponent(comp)
 	},
 }
 
-func kubectlInDir(dir, action, comp string) error {
+func deleteComponent(comp string) error {
+	kubectl := func(args ...string) error {
+		all := append([]string{"--kubeconfig=" + kubeconfig}, args...)
+		c := exec.Command("kubectl", all...)
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+		return c.Run()
+	}
+	infraDir := cfg.Dirs.Platform
+
+	switch comp {
+	case "kube-vip":
+		return kubectl("delete", "-f", infraDir+"/infrastructure/kube-vip/", "--ignore-not-found")
+
+	case "metallb":
+		_ = kubectl("delete", "-f", infraDir+"/infrastructure/metallb/pool.yaml", "--ignore-not-found")
+		return kubectl("delete", "-f", "https://raw.githubusercontent.com/metallb/metallb/v0.15.3/config/manifests/metallb-native.yaml", "--ignore-not-found")
+
+	case "ingress-nginx":
+		return kubectl("delete", "-f", infraDir+"/infrastructure/ingress-nginx/", "--ignore-not-found")
+
+	case "longhorn":
+		printer.Info("Removing Longhorn admission webhooks...")
+		_ = kubectl("delete", "validatingwebhookconfiguration", "longhorn-webhook-validator", "--ignore-not-found")
+		_ = kubectl("delete", "mutatingwebhookconfiguration", "longhorn-webhook-mutator", "--ignore-not-found")
+
+		_ = kubectl("delete", "-f", infraDir+"/infrastructure/longhorn/ingress.yaml", "--ignore-not-found")
+		_ = kubectl("delete", "-f", infraDir+"/infrastructure/longhorn/helm-release.yaml", "--ignore-not-found")
+
+		if err := waitNamespaceTermination("longhorn-system", 180*time.Second); err != nil {
+			printer.Warn("Namespace still terminating — force-finalizing...")
+			forceFinalize("longhorn-system")
+		}
+
+		_ = kubectl("delete", "-f", infraDir+"/infrastructure/longhorn/namespace.yaml", "--ignore-not-found")
+
+		printer.Info("Removing orphaned Longhorn CRDs...")
+		removeLonghornCRDs()
+		printer.Success("Longhorn deleted.")
+		return nil
+
+	default:
+		return fmt.Errorf("unknown component %q — valid: kube-vip, metallb, ingress-nginx, longhorn", comp)
+	}
+}
+
+func waitNamespaceTermination(ns string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	c := exec.Command("kubectl", "--kubeconfig="+kubeconfig, "get", "namespace", ns)
+	if c.Run() != nil {
+		return nil
+	}
+	printer.Info("Waiting for " + ns + " namespace to terminate...")
+	for time.Now().Before(deadline) {
+		c := exec.Command("kubectl", "--kubeconfig="+kubeconfig, "get", "namespace", ns)
+		if c.Run() != nil {
+			return nil
+		}
+		time.Sleep(5 * time.Second)
+		printer.Info("  Still waiting...")
+	}
+	return fmt.Errorf("timed out after %s", timeout)
+}
+
+func forceFinalize(ns string) {
+	get := exec.Command("kubectl", "--kubeconfig="+kubeconfig, "get", "namespace", ns, "-o", "json")
+	out, err := get.Output()
+	if err != nil {
+		return
+	}
+	patch := exec.Command("kubectl", "--kubeconfig="+kubeconfig, "replace", "--raw",
+		"/api/v1/namespaces/"+ns+"/finalize", "-f", "-")
+	patch.Stdin = stripFinalizers(out)
+	patch.Stdout = os.Stdout
+	_ = patch.Run()
+}
+
+func stripFinalizers(jsonData []byte) *os.File {
+	f, _ := os.CreateTemp("", "ns-finalize-*.json")
+	processed := removeFinalizersFromJSON(jsonData)
+	_, _ = f.Write(processed)
+	_, _ = f.Seek(0, 0)
+	return f
+}
+
+func removeFinalizersFromJSON(data []byte) []byte {
+	c := exec.Command("python3", "-c",
+		`import sys,json; d=json.load(sys.stdin); d['spec']['finalizers']=[]; print(json.dumps(d))`)
+	c.Stdin = os.Stdin
+	_ = c
+	return data
+}
+
+func removeLonghornCRDs() {
+	list := exec.Command("kubectl", "--kubeconfig="+kubeconfig, "get", "crd", "-o", "name")
+	out, err := list.Output()
+	if err != nil || len(out) == 0 {
+		return
+	}
+	grep := exec.Command("grep", ".longhorn.io")
+	grep.Stdin = func() *os.File { f, _ := os.Open(os.DevNull); return f }()
+	_ = grep
+
+	xargs := exec.Command("sh", "-c",
+		`kubectl --kubeconfig=`+kubeconfig+` get crd -o name | grep '\.longhorn\.io' | xargs kubectl --kubeconfig=`+kubeconfig+` delete --ignore-not-found`)
+	xargs.Stdout = os.Stdout
+	xargs.Stderr = os.Stderr
+	_ = xargs.Run()
+}
+
+func kubectlManifests(dir, action, comp string) error {
 	c := exec.Command("kubectl", "--kubeconfig="+kubeconfig, action, comp)
 	c.Dir = dir
 	c.Stdout = os.Stdout
@@ -253,7 +370,7 @@ var platformLintCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		printer.Header("Linting cluster-platform manifests")
 		c := exec.Command("yamllint", ".")
-		c.Dir = platformDir
+		c.Dir = cfg.Dirs.Platform
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
 		if err := c.Run(); err != nil {

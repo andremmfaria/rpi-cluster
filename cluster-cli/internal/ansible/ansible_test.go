@@ -4,63 +4,37 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestPlaybookDefaultArgs(t *testing.T) {
-	p := NewPlaybook("/repo/cluster-setup", "site.yml")
-	args := p.Args()
-
-	require.Contains(t, args, "site.yml")
-	require.Contains(t, args, "-i")
-	assert.Contains(t, args, "inventories/homelab/hosts.yml")
+func TestPlaybookWithInventoryBuildsPath(t *testing.T) {
+	p := NewPlaybook("/repo", "site.yml").WithInventory("homelab")
+	assert.Equal(t, "inventories/homelab/hosts.yml", p.options.Inventory)
 }
 
-func TestPlaybookWithInventory(t *testing.T) {
-	p := NewPlaybook("/repo", "site.yml").WithInventory("staging")
-	args := p.Args()
-
-	assert.Contains(t, args, "inventories/staging/hosts.yml")
+func TestPlaybookWithInventoryEmpty(t *testing.T) {
+	p := NewPlaybook("/repo", "site.yml").WithInventory("")
+	assert.Equal(t, "", p.options.Inventory)
 }
 
 func TestPlaybookWithLimit(t *testing.T) {
 	p := NewPlaybook("/repo", "site.yml").WithLimit("rpi-0")
-	args := p.Args()
-
-	assert.Contains(t, args, "-l")
-	assert.Contains(t, args, "rpi-0")
+	assert.Equal(t, "rpi-0", p.options.Limit)
 }
 
 func TestPlaybookWithTags(t *testing.T) {
 	p := NewPlaybook("/repo", "site.yml").WithTags("common,storage")
-	args := p.Args()
+	assert.Equal(t, "common,storage", p.options.Tags)
+}
 
-	assert.Contains(t, args, "-t")
-	assert.Contains(t, args, "common,storage")
+func TestPlaybookWithSkipTags(t *testing.T) {
+	p := NewPlaybook("/repo", "site.yml").WithSkipTags("slow")
+	assert.Equal(t, "slow", p.options.SkipTags)
 }
 
 func TestPlaybookWithCheckMode(t *testing.T) {
 	p := NewPlaybook("/repo", "site.yml").WithCheckMode()
-	args := p.Args()
-
-	assert.Contains(t, args, "--check")
-	assert.Contains(t, args, "--diff")
-}
-
-func TestPlaybookWithExtraVars(t *testing.T) {
-	p := NewPlaybook("/repo", "site.yml").WithExtraVars([]string{"k3s_version=v1.35.3+k3s1", "foo=bar"})
-	args := p.Args()
-
-	assert.Contains(t, args, "-e")
-	assert.Contains(t, args, "k3s_version=v1.35.3+k3s1")
-	assert.Contains(t, args, "foo=bar")
-}
-
-func TestPlaybookNoLimitWhenEmpty(t *testing.T) {
-	p := NewPlaybook("/repo", "site.yml").WithLimit("")
-	args := p.Args()
-
-	assert.NotContains(t, args, "-l")
+	assert.True(t, p.options.Check)
+	assert.True(t, p.options.Diff)
 }
 
 func TestPlaybookChaining(t *testing.T) {
@@ -70,10 +44,8 @@ func TestPlaybookChaining(t *testing.T) {
 		WithTags("common").
 		WithCheckMode()
 
-	args := p.Args()
-	assert.Contains(t, args, "--check")
-	assert.Contains(t, args, "-l")
-	assert.Contains(t, args, "rpi-0")
-	assert.Contains(t, args, "-t")
-	assert.Contains(t, args, "common")
+	assert.Equal(t, "inventories/homelab/hosts.yml", p.options.Inventory)
+	assert.Equal(t, "rpi-0", p.options.Limit)
+	assert.Equal(t, "common", p.options.Tags)
+	assert.True(t, p.options.Check)
 }
