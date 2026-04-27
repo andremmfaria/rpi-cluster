@@ -6,9 +6,12 @@ Monorepo for a 6-node Raspberry Pi Kubernetes cluster — from bare-metal provis
 
 ```
 rpi-cluster/
-├── cluster-setup/        # Ansible automation — OS hardening, storage, k3s bootstrap
-├── cluster-platform/     # GitOps manifests — platform infrastructure (kube-vip, MetalLB, ingress, Longhorn)
-└── scripts/              # Unified management scripts (run.sh, act.sh)
+├── cluster-setup/    # Ansible automation — OS hardening, storage, k3s bootstrap
+├── cluster-platform/ # GitOps manifests — platform infrastructure
+├── cluster-cli/      # Go CLI — rpicli (source)
+├── config/           # Cluster-wide configuration (cluster-config.toml, secrets.toml)
+├── bin/              # Compiled rpicli binary (gitignored)
+└── scripts/          # Build scripts (cli-build.sh, act.sh)
 ```
 
 ## Modules
@@ -26,7 +29,7 @@ See [`cluster-setup/README.md`](./cluster-setup/README.md) for full documentatio
 
 ### [`cluster-platform/`](./cluster-platform/README.md)
 
-GitOps-managed Kubernetes platform layer — applied with `scripts/run.sh platform` after the cluster is bootstrapped.
+GitOps-managed Kubernetes platform layer — applied with `./bin/rpicli platform` after the cluster is bootstrapped.
 
 - kube-vip — HA API endpoint (VIP `192.168.50.30`)
 - MetalLB — LoadBalancer IPs on LAN (`192.168.50.40–60`)
@@ -36,18 +39,35 @@ GitOps-managed Kubernetes platform layer — applied with `scripts/run.sh platfo
 
 See [`cluster-platform/README.md`](./cluster-platform/README.md) for full documentation.
 
+### [`cluster-cli/`](./cluster-cli/)
+
+Go + Cobra CLI (`rpicli`) — the primary management tool for all cluster operations.
+
+```bash
+./scripts/cli-build.sh build     # compile to ./bin/rpicli
+./bin/rpicli setup deploy        # Ansible bootstrap
+./bin/rpicli platform apply all  # deploy platform stack
+./bin/rpicli cluster shutdown    # graceful shutdown
+```
+
+### [`config/`](./config/)
+
+Single source of truth for all environment-specific values.
+
+| File | Purpose | Committed |
+| ---- | ------- | --------- |
+| `cluster-config.toml` | Nodes, network, k3s, storage, platform versions, DNS | ✅ |
+| `secrets.toml` | Sensitive values (Cloudflare API token, etc.) | ❌ gitignored |
+| `secrets.toml.example` | Template showing secrets structure | ✅ |
+
 ### [`scripts/`](./scripts/)
 
-Unified management scripts for the entire repo.
-
-| Script | Usage | Description |
-| ------ | ----- | ----------- |
-| `run.sh setup <cmd>` | `deps` `ping` `deploy` `reset` `check` `lint` | Ansible wrapper |
-| `run.sh platform <cmd>` | `kubeconfig` `apply` `diff` `delete` `status` `lint` | kubectl wrapper |
-| `run.sh cluster shutdown` | | Graceful cluster shutdown |
-| `act.sh lint setup\|platform\|all` | | Run CI workflows locally via act |
-
-See [`cluster-platform/README.md`](./cluster-platform/README.md) for full documentation.
+| Script | Description |
+| ------ | ----------- |
+| `cli-build.sh build [--all]` | Build `./bin/rpicli` (current platform or all targets) |
+| `cli-build.sh test` | Run unit tests with coverage |
+| `cli-build.sh install` | Build and install to `/usr/local/bin/rpicli` |
+| `act.sh lint setup\|platform\|all` | Run CI workflows locally via act |
 
 ## CI
 
@@ -55,3 +75,4 @@ See [`cluster-platform/README.md`](./cluster-platform/README.md) for full docume
 | -------- | ---- | ----------- | ---- |
 | Cluster Setup — Lint | `cluster-setup-lint.yml` | `cluster-setup/**` | YAML Lint, Ansible Lint, Syntax Check |
 | Cluster Platform — Lint | `cluster-platform-lint.yml` | `cluster-platform/**` | Manifests Lint |
+| Cluster CLI | `cluster-cli.yml` | `cluster-cli/**` | Test, Build (amd64 + arm64) |

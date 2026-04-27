@@ -2,7 +2,7 @@
 
 GitOps-managed Kubernetes platform layer for the rpi-cluster.
 
-Applied via `scripts/run.sh platform` from the repo root — no Flux or ArgoCD yet.
+Applied via `./bin/rpicli platform` from the repo root — no Flux or ArgoCD yet.
 
 ---
 
@@ -18,7 +18,7 @@ cluster-platform/
     └── cert-manager/    # TLS certificate management (self-signed + Let's Encrypt DNS-01)
 ```
 
-Scripts live at the repo root — see [`scripts/`](../scripts/).
+Scripts live at the repo root — see [`scripts/`](../scripts/) and [`bin/rpicli`](../bin/).
 
 ---
 
@@ -27,7 +27,7 @@ Scripts live at the repo root — see [`scripts/`](../scripts/).
 | Component     | Version        | How applied              |
 | ------------- | -------------- | ------------------------ |
 | kube-vip      | `v1.1.2`       | `kubectl apply -f`       |
-| MetalLB       | `v0.15.3`      | `kubectl apply -k`       |
+| MetalLB       | `v0.15.3`      | two-step kubectl apply   |
 | ingress-nginx | chart `4.15.1` | k3s `HelmChart` CRD      |
 | Longhorn      | `1.11.1`       | k3s `HelmChart` CRD      |
 | cert-manager  | `v1.20.2`      | k3s `HelmChart` CRD      |
@@ -42,7 +42,7 @@ k3s writes its kubeconfig to `/etc/rancher/k3s/k3s.yaml` on the control-plane no
 Fetch it and rewrite the server address to the node IP:
 
 ```bash
-./scripts/run.sh platform kubeconfig \
+./bin/rpicli platform kubeconfig \
   --server 192.168.50.20 \
   --user rpi \
   --key ~/.ssh/id_rpi
@@ -57,29 +57,40 @@ export KUBECONFIG=~/.kube/rpi-cluster.yaml
 After kube-vip is deployed, re-fetch pointing at the VIP:
 
 ```bash
-./scripts/run.sh platform kubeconfig \
-  --server 192.168.50.30 \
-  --user rpi \
-  --key ~/.ssh/id_rpi
+./bin/rpicli platform kubeconfig --server 192.168.50.30
 ```
 
 ---
 
-### 2. Apply components
+### 2. Populate secrets
+
+Before applying cert-manager, create `config/secrets.toml` from the example:
+
+```bash
+cp config/secrets.toml.example config/secrets.toml
+# edit config/secrets.toml — fill in your Cloudflare API token
+```
+
+`config/secrets.toml` is gitignored and never committed.
+
+---
+
+### 3. Apply components
 
 Components must be applied in order — each depends on the previous.
 
 ```bash
-./scripts/run.sh platform apply all
+./bin/rpicli platform apply all
 ```
 
 Or one at a time:
 
 ```bash
-./scripts/run.sh platform apply kube-vip
-./scripts/run.sh platform apply metallb
-./scripts/run.sh platform apply ingress-nginx
-./scripts/run.sh platform apply longhorn
+./bin/rpicli platform apply kube-vip
+./bin/rpicli platform apply metallb
+./bin/rpicli platform apply ingress-nginx
+./bin/rpicli platform apply longhorn
+./bin/rpicli platform apply cert-manager
 ```
 
 ---
@@ -136,7 +147,7 @@ Replicated block storage across all 6 nodes. Data path `/mnt/nvme/longhorn` on e
 Requires `open-iscsi` + `iscsid` running on all nodes — handled by the `cluster-setup` Ansible role.
 
 ```bash
-./scripts/run.sh platform apply longhorn
+./bin/rpicli platform apply longhorn
 ```
 
 Validate:
@@ -149,27 +160,13 @@ kubectl get nodes.longhorn.io -n longhorn-system
 
 UI: `http://longhorn.kantharos.srv` (after DNS entry pointing to `192.168.50.40`)
 
-Test dynamic provisioning:
-
-```bash
-kubectl apply -f infrastructure/longhorn/test-pvc.yaml
-kubectl get pvc longhorn-test-pvc
-kubectl delete -f infrastructure/longhorn/test-pvc.yaml
-```
-
 ---
 
 ### cert-manager
 
 Automatic TLS certificate management. Supports self-signed certs for internal use and Let's Encrypt DNS-01 via Cloudflare for LAN-only services.
 
-**Before applying:** create the Cloudflare API token secret manually (never commit the real token):
-
-```bash
-cp cluster-platform/infrastructure/cert-manager/cloudflare-token-secret.example.yaml /tmp/cloudflare-token-secret.yaml
-# edit /tmp/cloudflare-token-secret.yaml — replace CHANGE_ME with your token
-kubectl apply -f /tmp/cloudflare-token-secret.yaml
-```
+**Before applying**, populate `config/secrets.toml` with your Cloudflare API token (see [Getting started](#2-populate-secrets)). The CLI reads the token at apply-time and substitutes it into `cloudflare-token-secret.yaml` before piping to `kubectl apply` — the real token never touches the repo.
 
 ```bash
 ./bin/rpicli platform apply cert-manager
@@ -206,20 +203,27 @@ spec:
 
 ---
 
-## Scripts reference
+## rpicli reference
 
-All scripts are at the repo root `scripts/`. Run from the repo root.
+All platform operations use `./bin/rpicli`. Run from the repo root.
 
-### `scripts/run.sh platform`
+### platform commands
 
 | Command | Description |
 | ------- | ----------- |
-| `platform kubeconfig --server <ip> --user <user> --key <key>` | Fetch kubeconfig from a control-plane node |
+| `platform kubeconfig --server <ip>` | Fetch kubeconfig (user/key default from `cluster-config.toml`) |
 | `platform apply <component\|all>` | Apply one or all components in order |
 | `platform diff <component\|all>` | Dry-run diff against live cluster |
 | `platform delete <component>` | Remove a component (requires confirmation) |
-| `platform status` | Show pods/services for all platform namespaces |
+| `platform restart <component>` | Rollout restart a component's pods |
+| `platform status [component]` | Show pods/services (default: all) |
+| `platform logs <component\|pod>` | Stream logs with component auto-resolution |
+| `platform events [-n ns\|-A]` | Show warning events sorted by time |
+| `platform describe <type> [name]` | Describe a resource |
+| `platform exec <component\|pod>` | Exec into a pod (default: sh) |
 | `platform lint` | Run yamllint on cluster-platform manifests |
+
+Known components: `kube-vip` · `metallb` · `ingress-nginx` · `longhorn` · `cert-manager`
 
 ### `scripts/act.sh`
 
@@ -245,4 +249,4 @@ DNS entries (point to `192.168.50.40`):
 longhorn.kantharos.srv
 ```
 
-> cert-manager issues certificates via DNS-01 (Cloudflare). No DNS record required for cert-manager itself — certificates are requested per-ingress.
+> cert-manager issues certificates via DNS-01 (Cloudflare). No DNS record required for cert-manager itself — certificates are requested per-ingress via annotation.

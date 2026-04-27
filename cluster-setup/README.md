@@ -506,7 +506,7 @@ ansible-playbook -i inventories/homelab/hosts.yml site.yml
 
 **Target**: `rpi_cluster` | `become: true`
 
-> **Destructive.** This playbook is intentionally separate from `scripts/run.sh` and must be run explicitly.
+> **Destructive.** This playbook is intentionally separate from `bin/rpicli` and must be run explicitly.
 
 Runs the k3s uninstall scripts and wipes the data directory. Does **not** unmount or reformat the NVMe — the filesystem and mount remain intact for re-bootstrapping.
 
@@ -559,9 +559,9 @@ ansible-playbook -i inventories/homelab/hosts.yml site.yml
 Or use the helper script (does steps 2 + 3 together):
 
 ```bash
-./scripts/run.sh setup deps
-./scripts/run.sh setup ping
-./scripts/run.sh setup deploy
+./bin/rpicli setup deps
+./bin/rpicli setup ping
+./bin/rpicli setup deploy
 ```
 
 Approximate runtime: 10–20 minutes depending on network speed and node responsiveness.
@@ -652,12 +652,12 @@ GitHub Actions runs on every push and pull request to `main`/`master` touching `
 
 Workflow file: `.github/workflows/cluster-setup-lint.yml`
 
-No molecule/container tests — role logic is validated on physical hardware. Use `./scripts/run.sh setup check` for a live dry-run against the real inventory before applying.
+No molecule/container tests — role logic is validated on physical hardware. Use `./bin/rpicli setup check` for a live dry-run against the real inventory before applying.
 
 To run the same checks locally:
 
 ```bash
-./scripts/run.sh setup lint          # yamllint + ansible-lint
+./bin/rpicli setup lint          # yamllint + ansible-lint
 ./scripts/act.sh lint setup          # cluster-setup CI workflow via act (requires Docker)
 ```
 
