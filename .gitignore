@@ -49,4 +49,4 @@
 *.kubeconfig
 bin/
 cluster-cli/dist/
-cloudflare-token-secret.yaml
+config/secrets.toml

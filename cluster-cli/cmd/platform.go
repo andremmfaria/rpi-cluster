@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"rpicli/internal/component"
+	"rpicli/internal/config"
 	"rpicli/internal/kube"
 	"rpicli/internal/printer"
 
@@ -142,7 +144,38 @@ func applyComponent(comp string) error {
 		}
 		return kubectl("apply", "-f", infraDir+"/infrastructure/longhorn/ingress.yaml")
 	case "cert-manager":
+		secrets, err := config.LoadSecrets(configPath)
+		if err != nil {
+			return err
+		}
 		_ = kubectl("apply", "-f", infraDir+"/infrastructure/cert-manager/namespace.yaml")
+		if err := kubectl("apply", "-f", infraDir+"/infrastructure/cert-manager/helm-release.yaml"); err != nil {
+			return err
+		}
+		printer.Info("Waiting for cert-manager CRDs...")
+		if err := waitForCRDs(
+			"certificates.cert-manager.io",
+			"clusterissuers.cert-manager.io",
+			"issuers.cert-manager.io",
+		); err != nil {
+			return err
+		}
+		printer.Info("Waiting for cert-manager webhook to be ready...")
+		if err := kubectl("wait", "--for=condition=Available",
+			"deployment/cert-manager-webhook", "-n", "cert-manager", "--timeout=120s"); err != nil {
+			return err
+		}
+		printer.Info("Creating Cloudflare API token secret from config/secrets.toml...")
+		if err := applyWithSubstitution(
+			infraDir+"/infrastructure/cert-manager/cloudflare-token-secret.yaml",
+			"CLOUDFLARE_API_TOKEN", secrets.Cloudflare.APIToken,
+		); err != nil {
+			return fmt.Errorf("creating cloudflare secret: %w", err)
+		}
+		printer.Info("Applying ClusterIssuers...")
+		_ = kubectl("apply", "-f", infraDir+"/infrastructure/cert-manager/clusterissuer-selfsigned.yaml")
+		_ = kubectl("apply", "-f", infraDir+"/infrastructure/cert-manager/clusterissuer-letsencrypt-staging.yaml")
+		return kubectl("apply", "-f", infraDir+"/infrastructure/cert-manager/clusterissuer-letsencrypt-prod.yaml")
 		if err := kubectl("apply", "-f", infraDir+"/infrastructure/cert-manager/helm-release.yaml"); err != nil {
 			return err
 		}
@@ -182,6 +215,23 @@ func waitForCRDs(crds ...string) error {
 		args = append(args, "crd/"+crd)
 	}
 	c := exec.Command("kubectl", args...)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	return c.Run()
+}
+
+func applyWithSubstitution(path, placeholder, value string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	rendered := strings.ReplaceAll(string(raw), placeholder, value)
+	return applyFromStdin(rendered)
+}
+
+func applyFromStdin(manifest string) error {
+	c := exec.Command("kubectl", "--kubeconfig="+kubeconfig, "apply", "-f", "-")
+	c.Stdin = strings.NewReader(manifest)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	return c.Run()

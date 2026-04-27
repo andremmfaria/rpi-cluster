@@ -17,6 +17,14 @@ type Config struct {
 	Platform PlatformConfig `toml:"platform"`
 }
 
+type Secrets struct {
+	Cloudflare CloudflareSecrets `toml:"cloudflare"`
+}
+
+type CloudflareSecrets struct {
+	APIToken string `toml:"api_token"`
+}
+
 type ClusterConfig struct {
 	Name  string `toml:"name"`
 	Email string `toml:"email"`
@@ -157,4 +165,24 @@ func expandHome(path string) string {
 func home() string {
 	h, _ := os.UserHomeDir()
 	return h
+}
+
+func LoadSecrets(configPath string) (*Secrets, error) {
+	base := filepath.Dir(configPath)
+	if configPath == "" {
+		base = "."
+	}
+	p := filepath.Join(base, "secrets.toml")
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return nil, fmt.Errorf("resolving secrets path: %w", err)
+	}
+	if _, err := os.Stat(abs); err != nil {
+		return nil, fmt.Errorf("secrets.toml not found at %s — copy config/secrets.toml.example to config/secrets.toml and fill in values", abs)
+	}
+	var s Secrets
+	if _, err := toml.DecodeFile(abs, &s); err != nil {
+		return nil, fmt.Errorf("parsing secrets.toml: %w", err)
+	}
+	return &s, nil
 }
