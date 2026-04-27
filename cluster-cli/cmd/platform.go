@@ -75,7 +75,7 @@ var platformApplyCmd = &cobra.Command{
 	Short: "Apply a component (kube-vip|metallb|ingress-nginx|longhorn|all)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return kubectlManifests(cfg.Dirs.Platform, "apply", args[0])
+		return applyComponent(args[0])
 	},
 }
 
@@ -84,7 +84,7 @@ var platformDiffCmd = &cobra.Command{
 	Short: "Dry-run diff against live cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return kubectlManifests(cfg.Dirs.Platform, "diff", args[0])
+		return diffComponent(args[0])
 	},
 }
 
@@ -101,6 +101,102 @@ var platformDeleteCmd = &cobra.Command{
 		}
 		return deleteComponent(comp)
 	},
+}
+
+func applyComponent(comp string) error {
+	kubectl := func(args ...string) error {
+		all := append([]string{"--kubeconfig=" + kubeconfig}, args...)
+		c := exec.Command("kubectl", all...)
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+		return c.Run()
+	}
+	infraDir := cfg.Dirs.Platform
+
+	switch comp {
+	case "kube-vip":
+		return kubectl("apply", "-f", infraDir+"/infrastructure/kube-vip/")
+	case "metallb":
+		if err := kubectl("apply", "-f", "https://raw.githubusercontent.com/metallb/metallb/v0.15.3/config/manifests/metallb-native.yaml"); err != nil {
+			return err
+		}
+		if err := waitForCRDs("ipaddresspools.metallb.io", "l2advertisements.metallb.io"); err != nil {
+			return err
+		}
+		printer.Info("Waiting for MetalLB controller to be ready...")
+		if err := kubectl("wait", "--for=condition=Available",
+			"deployment/controller", "-n", "metallb-system", "--timeout=120s"); err != nil {
+			return err
+		}
+		return kubectl("apply", "-f", infraDir+"/infrastructure/metallb/pool.yaml")
+	case "ingress-nginx":
+		return kubectl("apply", "-f", infraDir+"/infrastructure/ingress-nginx/")
+	case "longhorn":
+		_ = kubectl("apply", "-f", infraDir+"/infrastructure/longhorn/namespace.yaml")
+		if err := kubectl("apply", "-f", infraDir+"/infrastructure/longhorn/helm-release.yaml"); err != nil {
+			return err
+		}
+		printer.Info("Waiting for Longhorn CRDs (~2 min)...")
+		if err := waitForCRDs("volumes.longhorn.io", "nodes.longhorn.io", "settings.longhorn.io"); err != nil {
+			return err
+		}
+		return kubectl("apply", "-f", infraDir+"/infrastructure/longhorn/ingress.yaml")
+	case "all":
+		for _, c := range []string{"kube-vip", "metallb", "ingress-nginx", "longhorn"} {
+			printer.Header("Applying " + c)
+			if err := applyComponent(c); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown component %q", comp)
+	}
+}
+
+func waitForCRDs(crds ...string) error {
+	args := []string{"--kubeconfig=" + kubeconfig, "wait", "--for=condition=Established", "--timeout=60s"}
+	for _, crd := range crds {
+		args = append(args, "crd/"+crd)
+	}
+	c := exec.Command("kubectl", args...)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	return c.Run()
+}
+
+func diffComponent(comp string) error {
+	kubectl := func(args ...string) error {
+		all := append([]string{"--kubeconfig=" + kubeconfig}, args...)
+		c := exec.Command("kubectl", all...)
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+		_ = c.Run()
+		return nil
+	}
+	infraDir := cfg.Dirs.Platform
+
+	switch comp {
+	case "kube-vip":
+		return kubectl("diff", "-f", infraDir+"/infrastructure/kube-vip/")
+	case "metallb":
+		_ = kubectl("diff", "-f", "https://raw.githubusercontent.com/metallb/metallb/v0.15.3/config/manifests/metallb-native.yaml")
+		return kubectl("diff", "-f", infraDir+"/infrastructure/metallb/pool.yaml")
+	case "ingress-nginx":
+		return kubectl("diff", "-f", infraDir+"/infrastructure/ingress-nginx/")
+	case "longhorn":
+		_ = kubectl("diff", "-f", infraDir+"/infrastructure/longhorn/namespace.yaml")
+		_ = kubectl("diff", "-f", infraDir+"/infrastructure/longhorn/helm-release.yaml")
+		_ = kubectl("diff", "-f", infraDir+"/infrastructure/longhorn/ingress.yaml")
+		return nil
+	case "all":
+		for _, c := range []string{"kube-vip", "metallb", "ingress-nginx", "longhorn"} {
+			_ = diffComponent(c)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown component %q", comp)
+	}
 }
 
 func deleteComponent(comp string) error {
@@ -211,14 +307,6 @@ func removeLonghornCRDs() {
 	xargs.Stdout = os.Stdout
 	xargs.Stderr = os.Stderr
 	_ = xargs.Run()
-}
-
-func kubectlManifests(dir, action, comp string) error {
-	c := exec.Command("kubectl", "--kubeconfig="+kubeconfig, action, comp)
-	c.Dir = dir
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	return c.Run()
 }
 
 var platformStatusCmd = &cobra.Command{

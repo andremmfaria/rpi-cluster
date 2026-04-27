@@ -26,7 +26,7 @@ var registry = map[string]Component{
 	"metallb": {
 		Name:      "metallb",
 		Namespace: "metallb-system",
-		Selector:  "app in (controller,speaker)",
+		Selector:  "app=metallb",
 		Workloads: []Workload{
 			{Kind: "deployment", Name: "controller"},
 			{Kind: "daemonset", Name: "speaker"},

@@ -77,10 +77,14 @@ func Load(path string) (*Config, error) {
 
 	for _, p := range candidates {
 		p = expandHome(p)
-		if _, err := os.Stat(p); err == nil {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(abs); err == nil {
 			var cfg Config
-			if _, err := toml.DecodeFile(p, &cfg); err != nil {
-				return nil, fmt.Errorf("parsing %s: %w", p, err)
+			if _, err := toml.DecodeFile(abs, &cfg); err != nil {
+				return nil, fmt.Errorf("parsing %s: %w", abs, err)
 			}
 			cfg.Dirs.Setup = expandHome(cfg.Dirs.Setup)
 			cfg.Dirs.Platform = expandHome(cfg.Dirs.Platform)
@@ -93,7 +97,7 @@ func Load(path string) (*Config, error) {
 
 func defaultPaths() []string {
 	return []string{
-		"./rpicli.toml",
+		"./config/cluster-config.toml",
 		filepath.Join(home(), ".config", "rpicli", "config.toml"),
 	}
 }

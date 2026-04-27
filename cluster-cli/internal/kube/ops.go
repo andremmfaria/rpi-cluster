@@ -119,16 +119,22 @@ func PrintLogs(ctx context.Context, client Interface, opts LogOptions, w io.Writ
 		return err
 	}
 
-	logOpts := &corev1.PodLogOptions{
-		Container: opts.Container,
-		Follow:    opts.Follow,
-	}
-	if opts.Tail > 0 {
-		logOpts.TailLines = &opts.Tail
-	}
-
 	for _, pod := range pods {
 		fmt.Fprintf(w, "\n=== %s ===\n", pod)
+
+		container := opts.Container
+		if container == "" {
+			container = firstContainer(ctx, client, ns, pod)
+		}
+
+		logOpts := &corev1.PodLogOptions{
+			Container: container,
+			Follow:    opts.Follow,
+		}
+		if opts.Tail > 0 {
+			logOpts.TailLines = &opts.Tail
+		}
+
 		req := client.CoreV1().Pods(ns).GetLogs(pod, logOpts)
 		stream, err := req.Stream(ctx)
 		if err != nil {
@@ -139,6 +145,14 @@ func PrintLogs(ctx context.Context, client Interface, opts LogOptions, w io.Writ
 		stream.Close()
 	}
 	return nil
+}
+
+func firstContainer(ctx context.Context, client Interface, ns, pod string) string {
+	p, err := client.CoreV1().Pods(ns).Get(ctx, pod, metav1.GetOptions{})
+	if err != nil || len(p.Spec.Containers) == 0 {
+		return ""
+	}
+	return p.Spec.Containers[0].Name
 }
 
 func PrintEvents(ctx context.Context, client Interface, namespace string, allNamespaces bool) error {

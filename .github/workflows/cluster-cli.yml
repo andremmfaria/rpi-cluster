@@ -68,8 +68,8 @@ jobs:
 
       - name: Build
         run: |
-          mkdir -p dist
-          go build -ldflags="-s -w" -o dist/rpicli-${{ matrix.GOOS }}-${{ matrix.GOARCH }} .
+          mkdir -p ../../bin
+          go build -ldflags="-s -w" -o ../../bin/rpicli-${{ matrix.GOOS }}-${{ matrix.GOARCH }} .
         working-directory: cluster-cli
         env:
           GOOS: ${{ matrix.GOOS }}
@@ -79,5 +79,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: rpicli-${{ matrix.GOOS }}-${{ matrix.GOARCH }}
-          path: cluster-cli/dist/rpicli-${{ matrix.GOOS }}-${{ matrix.GOARCH }}
+          path: bin/rpicli-${{ matrix.GOOS }}-${{ matrix.GOARCH }}
           retention-days: 7
