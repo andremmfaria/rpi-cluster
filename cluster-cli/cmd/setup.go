@@ -28,7 +28,7 @@ var setupDepsCmd = &cobra.Command{
 	Short: "Install required Ansible Galaxy collections",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		printer.Header("Installing Ansible Galaxy collections")
-		return ansible.RunGalaxy(cfg.Dirs.Setup, "collection", "install", "community.general", "ansible.posix")
+		return ansible.RunGalaxy(cfg.Setup.Dir, "collection", "install", "community.general", "ansible.posix")
 	},
 }
 
@@ -39,7 +39,7 @@ var setupPingCmd = &cobra.Command{
 		inv := inventoryFlag(cmd)
 		limit, _ := cmd.Flags().GetString("limit")
 		printer.Header("Pre-flight validation — inventory: " + inv)
-		return ansible.NewPlaybook(cfg.Dirs.Setup, "playbooks/00-ping.yml").
+		return ansible.NewPlaybook(cfg.Setup.Dir, "playbooks/00-ping.yml").
 			WithInventory(inv).
 			WithLimit(limit).
 			Run(context.Background())
@@ -55,7 +55,7 @@ var setupDeployCmd = &cobra.Command{
 		tags, _ := cmd.Flags().GetString("tags")
 		extraVars, _ := cmd.Flags().GetStringArray("extra-var")
 		printer.Header("Deploying cluster — inventory: " + inv)
-		return ansible.NewPlaybook(cfg.Dirs.Setup, "site.yml").
+		return ansible.NewPlaybook(cfg.Setup.Dir, "site.yml").
 			WithInventory(inv).
 			WithLimit(limit).
 			WithTags(tags).
@@ -75,7 +75,7 @@ var setupResetCmd = &cobra.Command{
 			printer.Info("Aborted.")
 			return nil
 		}
-		return ansible.NewPlaybook(cfg.Dirs.Setup, "playbooks/99-reset.yml").
+		return ansible.NewPlaybook(cfg.Setup.Dir, "playbooks/99-reset.yml").
 			WithInventory(inv).
 			Run(context.Background())
 	},
@@ -89,7 +89,7 @@ var setupCheckCmd = &cobra.Command{
 		limit, _ := cmd.Flags().GetString("limit")
 		tags, _ := cmd.Flags().GetString("tags")
 		printer.Header("Dry-run (check + diff) — inventory: " + inv)
-		return ansible.NewPlaybook(cfg.Dirs.Setup, "site.yml").
+		return ansible.NewPlaybook(cfg.Setup.Dir, "site.yml").
 			WithInventory(inv).
 			WithLimit(limit).
 			WithTags(tags).
@@ -103,7 +103,7 @@ var setupLintCmd = &cobra.Command{
 	Short: "Run yamllint and ansible-lint",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		printer.Header("Linting cluster-setup")
-		if err := ansible.RunLint(cfg.Dirs.Setup); err != nil {
+		if err := ansible.RunLint(cfg.Setup.Dir); err != nil {
 			return err
 		}
 		printer.Success("All linters passed.")

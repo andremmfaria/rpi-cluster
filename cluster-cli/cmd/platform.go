@@ -111,7 +111,7 @@ func applyComponent(comp string) error {
 		c.Stderr = os.Stderr
 		return c.Run()
 	}
-	infraDir := cfg.Dirs.Platform
+	infraDir := cfg.Platform.Dir
 
 	switch comp {
 	case "kube-vip":
@@ -196,7 +196,7 @@ func diffComponent(comp string) error {
 		_ = c.Run()
 		return nil
 	}
-	infraDir := cfg.Dirs.Platform
+	infraDir := cfg.Platform.Dir
 
 	switch comp {
 	case "kube-vip":
@@ -236,7 +236,7 @@ func deleteComponent(comp string) error {
 		c.Stderr = os.Stderr
 		return c.Run()
 	}
-	infraDir := cfg.Dirs.Platform
+	infraDir := cfg.Platform.Dir
 
 	switch comp {
 	case "kube-vip":
@@ -497,7 +497,7 @@ var platformLintCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		printer.Header("Linting cluster-platform manifests")
 		c := exec.Command("yamllint", ".")
-		c.Dir = cfg.Dirs.Platform
+		c.Dir = cfg.Platform.Dir
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
 		if err := c.Run(); err != nil {

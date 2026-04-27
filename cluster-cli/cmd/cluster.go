@@ -50,7 +50,7 @@ var clusterShutdownCmd = &cobra.Command{
 			return nil
 		}
 
-		agents := cfg.Nodes.Agents
+		agents := cfg.Agents()
 		joining := cfg.JoiningServers()
 		init := cfg.InitServer()
 

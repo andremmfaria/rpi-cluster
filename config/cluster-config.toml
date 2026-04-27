@@ -1,40 +1,81 @@
 [cluster]
-name = "rpi-k3s"
+name  = "rpi-k3s"
+email = "andremarcalfaria@gmail.com"
 
 [ssh]
 user = "rpi"
-key = "~/.ssh/id_rpi"
+key  = "~/.ssh/id_rpi"
 
-[dirs]
-setup   = "./cluster-setup"
-platform = "./cluster-platform"
+# ── Nodes ─────────────────────────────────────────────────────────────────────
 
-[setup]
-default_inventory = "homelab"
+[[nodes]]
+name = "rpi-0"
+ip   = "192.168.50.20"
+role = "init"
 
-[[nodes.agents]]
-name = "rpi-3"
-ip   = "192.168.50.23"
-
-[[nodes.agents]]
-name = "rpi-4"
-ip   = "192.168.50.24"
-
-[[nodes.agents]]
-name = "rpi-5"
-ip   = "192.168.50.25"
-
-[[nodes.servers]]
-name = "rpi-2"
-ip   = "192.168.50.22"
-role = "joining"
-
-[[nodes.servers]]
+[[nodes]]
 name = "rpi-1"
 ip   = "192.168.50.21"
 role = "joining"
 
-[[nodes.servers]]
-name = "rpi-0"
-ip   = "192.168.50.20"
-role = "init"
+[[nodes]]
+name = "rpi-2"
+ip   = "192.168.50.22"
+role = "joining"
+
+[[nodes]]
+name = "rpi-3"
+ip   = "192.168.50.23"
+role = "agent"
+
+[[nodes]]
+name = "rpi-4"
+ip   = "192.168.50.24"
+role = "agent"
+
+[[nodes]]
+name = "rpi-5"
+ip   = "192.168.50.25"
+role = "agent"
+
+# ── Setup layer (Ansible) ─────────────────────────────────────────────────────
+
+[setup]
+dir               = "./cluster-setup"
+default_inventory = "homelab"
+
+[setup.k3s]
+version      = "v1.35.3+k3s1"
+token        = "CHANGE_ME"
+cluster_cidr = "10.42.0.0/16"
+service_cidr = "10.43.0.0/16"
+data_dir     = "/mnt/nvme/k3s"
+api_vip      = "192.168.50.30"
+
+[setup.storage]
+disk   = "/dev/sda"
+device = "/dev/sda1"
+mount  = "/mnt/nvme"
+fstype = "ext4"
+
+# ── Platform layer (Kubernetes) ───────────────────────────────────────────────
+
+[platform]
+dir = "./cluster-platform"
+
+[platform.network]
+vip          = "192.168.50.30"
+ingress_ip   = "192.168.50.40"
+metallb_pool = "192.168.50.40-192.168.50.60"
+
+[platform.dns]
+longhorn = "longhorn.kantharos.srv"
+rancher  = "rancher.kantharos.srv"
+grafana  = "grafana.kantharos.srv"
+
+[platform.versions]
+kube_vip            = "v1.1.2"
+metallb             = "v0.15.3"
+ingress_nginx_chart = "4.15.1"
+longhorn            = "1.11.1"
+cert_manager        = "v1.20.2"
