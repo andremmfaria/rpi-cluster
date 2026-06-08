@@ -22,7 +22,7 @@ jobs:
     name: Manifests Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v6.0.3
 
       - name: Install yamllint
         run: pip install yamllint==1.38.0
